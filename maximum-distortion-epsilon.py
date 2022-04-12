@@ -10,13 +10,17 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, get_weights
+from attacks import pgd, fgsm, mi_fgsm
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss, SmartLoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from src.helper_functions.voc import Voc2007Classification
-from create_model import create_q2l_model
+from create_q2l_model import create_q2l_model
 from src.helper_functions.nuswide_asl import NusWideFiltered
+import numpy.polynomial.polynomial as poly
+import numpy.ma as ma
+import matplotlib as mpl
+mpl.style.use('classic')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
@@ -26,7 +30,6 @@ parser = argparse.ArgumentParser()
 
 # MSCOCO 2014
 parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('attack_type', type=str, default='pgd')
 parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
 parser.add_argument('--model_name', type=str, default='tresnet_l')
 parser.add_argument('--num-classes', default=80)
@@ -44,7 +47,6 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 
 # # NUS_WIDE
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
-# parser.add_argument('attack_type', type=str, default='pgd')
 # parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
 # parser.add_argument('--model_name', type=str, default='tresnet_l')
 # parser.add_argument('--num-classes', default=81)
@@ -54,7 +56,7 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 
 # IMPORTANT PARAMETERS!
 parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=5, type=int,
+parser.add_argument('-b', '--batch-size', default=1, type=int,
                     metavar='N', help='mini-batch size (default: 16)')
 parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
                     help='number of data loading workers (default: 16)')
@@ -62,19 +64,19 @@ args = parse_args(parser)
 
 ########################## SETUP THE MODELS AND LOAD THE DATA #####################
 
-print('Model = ASL')
-state = torch.load(args.model_path, map_location='cpu')
-asl = create_model(args).cuda()
-model_state = torch.load(args.model_path, map_location='cpu')
-asl.load_state_dict(model_state["state_dict"])
-asl.eval()
-args.model_type = 'asl'
-model = asl
+# print('Model = ASL')
+# state = torch.load(args.model_path, map_location='cpu')
+# asl = create_model(args).cuda()
+# model_state = torch.load(args.model_path, map_location='cpu')
+# asl.load_state_dict(model_state["state_dict"])
+# asl.eval()
+# args.model_type = 'asl'
+# model = asl
 
-# print('Model = Q2L')
-# q2l = create_q2l_model('config_coco.json')
-# args.model_type = 'q2l'
-# model = q2l
+print('Model = Q2L')
+q2l = create_q2l_model('config_coco.json')
+args.model_type = 'q2l'
+model = q2l
 
 
 
@@ -82,8 +84,8 @@ model = asl
 
 if args.dataset_type == 'MSCOCO_2014':
 
-    instances_path = os.path.join(args.data, 'annotations/instances_train2014.json')
-    data_path = '{0}/train2014'.format(args.data)
+    instances_path = os.path.join(args.data, 'annotations/instances_val2014.json')
+    data_path = '{0}/val2014'.format(args.data)
 
     dataset = CocoDetectionFiltered(data_path,
                                 instances_path,
@@ -103,7 +105,7 @@ elif args.dataset_type == 'PASCAL_VOC2007':
 
 elif args.dataset_type == 'NUS_WIDE':
     
-    dataset = NusWideFiltered('train', transform=transforms.Compose([
+    dataset = NusWideFiltered('val', transform=transforms.Compose([
                     transforms.Resize((args.image_size, args.image_size)),
                     transforms.ToTensor()])
     )
@@ -114,18 +116,14 @@ data_loader = torch.utils.data.DataLoader(
     num_workers=args.workers, pin_memory=True)
 
 
-# flipup_rankings = torch.tensor(np.load('experiment_results/{0}-{1}-flipup.npy'.format(args.model_type, args.dataset_type))).to(device)
-# flipdown_rankings = torch.tensor(np.load('experiment_results/{0}-{1}-flipdown.npy'.format(args.model_type, args.dataset_type))).to(device)
-
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
-min_eps = 1/256
-# EPSILON_VALUES = [min_eps, 2*min_eps, 4*min_eps, 6*min_eps, 8*min_eps, 10*min_eps]
-# EPSILON_VALUES = [12*min_eps, 24*min_eps, 36*min_eps, 48*min_eps]
-# EPSILON_VALUES = [24*min_eps]
-flipped_labels = np.zeros((2, len(EPSILON_VALUES), NUMBER_OF_SAMPLES))
+min_eps = 0.2 / 10
+EPSILON_VALUES = [min_eps, 2*min_eps, 4*min_eps, 6*min_eps, 8*min_eps, 10*min_eps]
 
+flipped_labels = np.zeros((3, len(EPSILON_VALUES), NUMBER_OF_SAMPLES))
+coefficients = np.load('experiment_results/coefficients-{0}-{1}.npy'.format(args.model_type, args.dataset_type))
 #############################  EXPERIMENT LOOP #############################
 
 sample_count = 0
@@ -139,71 +137,65 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
     # Do the inference
     with torch.no_grad():
-        pred = torch.sigmoid(model(tensor_batch)) > args.th
+        output = torch.sigmoid(model(tensor_batch))
+        pred = (output > args.th).int()
         target = torch.clone(pred).detach()
-        target = ~target
+        target = 1 - target
 
     # process a batch and add the flipped labels for every number of targets
     for epsilon_index, epsilon in enumerate(EPSILON_VALUES):
 
-        # perform the attack
-        if args.attack_type == 'PGD':
-            pass
-        elif args.attack_type == 'FGSM':
-            pass
-        elif args.attack_type == 'MI-FGSM':
-            adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
-            # with torch.no_grad():
-                # flip_ratio = torch.sum(torch.logical_xor(pred, (torch.sigmoid(model(adversarials0)) > args.th).int())).item() / (args.num_classes * args.batch_size)
-            adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
-            # adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SmartLoss(flip_ratio), eps=epsilon, device="cuda").detach()
-            # adversarials3 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=HingeLoss(), eps=epsilon, device="cuda").detach()
-            # adversarials4 = smart_mi_fgsm(model, tensor_batch, target, loss_function=GreedyLinearLoss(a=8), sig=False, eps=epsilon, device="cuda")
-            # adversarials5 = mi_fgsm(model, tensor_batch, target, eps=epsilon, device="cuda")
-            # adversarials6 = mi_fgsm(model, tensor_batch, target, loss_function=F2(), eps=epsilon, device="cuda")
-        else:
-            print("Unknown attack")
-            break
+    
+        adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
+        # adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
+        # adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SmartLoss(coefficients, epsilon, 0.20, args.num_classes), eps=epsilon, device="cuda").detach()
+        
+        
         with torch.no_grad():
             # Another inference after the attack
+
+            # Confidence analysis part
+            # output_after = torch.sigmoid(model(adversarials0))
+            # y1 = output_after.detach().cpu()[0]
+            # y2 = output.detach().cpu()[0]
+            # mask1 = ma.where(y1>=y2)
+            # mask2 = ma.where(y2>=y1)
+            # plt.bar(np.array([x for x in range(80)])[mask1], y1[mask1], color='red')
+            # plt.bar(np.array([x for x in range(80)]), y2, color='blue', label='pre-attack')
+            # plt.bar(np.array([x for x in range(80)])[mask2], y1[mask2], color='red', label='post-attack')
+            # plt.axhline(y = 0.5, color = 'black', linestyle = '-', label='treshold')
+            # plt.legend()
+            # plt.show()
+
             pred_after_attack0 = (torch.sigmoid(model(adversarials0)) > args.th).int()
-            pred_after_attack1 = (torch.sigmoid(model(adversarials1)) > args.th).int()
+            # pred_after_attack1 = (torch.sigmoid(model(adversarials1)) > args.th).int()
             # pred_after_attack2 = (torch.sigmoid(model(adversarials2)) > args.th).int()
-            # pred_after_attack3 = (torch.sigmoid(model(adversarials3)) > args.th).int()
-            # pred_after_attack4 = (torch.sigmoid(model(adversarials4)) > args.th).int()
-            # pred_after_attack5 = (torch.sigmoid(model(adversarials5)) > args.th).int()
-            # pred_after_attack6 = (torch.sigmoid(model(adversarials6)) > args.th).int()
+        
             flipped_labels[0, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack0), dim=1).cpu().numpy()
-            flipped_labels[1, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack1), dim=1).cpu().numpy()
-            # flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2)).item() / (NUMBER_OF_SAMPLES)
-            # flipped_labels[3, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack3)).item() / (NUMBER_OF_SAMPLES)
-            # flipped_labels[4, epsilon_index], i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack4)).item() / (NUMBER_OF_SAMPLES)
-            # flipped_labels[5, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack5)).item() / (NUMBER_OF_SAMPLES)
-            # flipped_labels[6, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack6)).item() / (NUMBER_OF_SAMPLES)
+            # flipped_labels[1, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack1), dim=1).cpu().numpy()
+            # flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2), dim=1).cpu().numpy()
+            
 
     sample_count += args.batch_size
     print('batch number:',i)
 
-# flipped_labels = np.insert(flipped_labels, 0, 0, axis=1)
-# EPSILON_VALUES.insert(0,0)
+flipped_labels = np.insert(flipped_labels, 0, 0, axis=1)
+EPSILON_VALUES.insert(0,0)
 
-print(flipped_labels)
-np.save('experiment_results/maxdist_epsilon-bce-vs-linear-{0}-{1}'.format(args.model_type, args.dataset_type),flipped_labels)
+means_bce = np.mean(flipped_labels,axis=2)[0]
+means_linear = np.mean(flipped_labels,axis=2)[1]
+means_smart = np.mean(flipped_labels,axis=2)[2]
+
+std_bce = np.std(flipped_labels,axis=2)[0]
+std_linear = np.std(flipped_labels,axis=2)[1]
+std_smart = np.std(flipped_labels,axis=2)[2]
+
+coefs = poly.polyfit(EPSILON_VALUES, np.maximum(means_bce,means_linear), 3)
+
+# np.save('experiment_results/maxdist_epsilon-coefficients-{0}-{1}'.format(args.model, args.dataset_type), coefs)
+# np.save('experiment_results/maxdist_epsilon-bce+lin-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
 
 
-##############################  PLOT CODE #############################
 
-# plt.plot(EPSILON_VALUES, flipped_labels[0, :], label='BCELoss')
-# plt.plot(EPSILON_VALUES, flipped_labels[1, :], label='Linear')
-# plt.plot(EPSILON_VALUES, flipped_labels[2, :], label='Smart')
-# plt.plot(EPSILON_VALUES, flipped_labels[3, :], label='Hinge')
-# plt.plot(EPSILON_VALUES, flipped_labels[4, :], label='a = {0}'.format(16))
-# plt.plot(EPSILON_VALUES, flipped_labels[5, :], label='BCELoss')   
-
-plt.xlabel("Epsilon value")
-plt.ylabel("Label flips")
-plt.title("{0}, {1}, {2}".format(args.dataset_type, args.attack_type, args.model_type))
-plt.legend()
-plt.show()
 
 

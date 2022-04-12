@@ -38,12 +38,12 @@ class AttackModel():
             self.mla_lp(params)
         elif self.state['adv_method'] == 'ml_cw':
             self.attack_model = MLCarliniWagnerL2(self.model)
-            params = {'binary_search_steps': 10,
+            params = {'binary_search_steps': 1,
                       'y_target': None,
                       'max_iterations': 1000,
                       'learning_rate': 0.01,
                       'batch_size': self.adv_batch_size,
-                      'initial_const': 1e5,
+                      'initial_const': 0.05,
                       'clip_min': clip_min,
                       'clip_max': clip_max}
             self.ml_cw(params)
@@ -98,6 +98,7 @@ class AttackModel():
             
             output = 2 * (torch.sigmoid(self.model(x.cuda())) > 0.5).int().detach().cpu().numpy() - 1
             t =  -output.copy()
+            print(np.where(output > 0))
          
             params['y_target'] = t
 
@@ -138,12 +139,12 @@ class AttackModel():
             output = 2 * (torch.sigmoid(self.model(x.cuda())) > 0.5).int().detach().cpu().numpy() - 1
             params['y_target'] = -output
 
-            np.save(self.adv_save_x + 'ml_cw_' + 'clean{0}'.format(i), x)
+            np.save(self.adv_save_x + 'ml_cw_lambda_fixed' + 'clean{0}'.format(i), x)
 
             adv = self.attack_model.generate_np(x.cpu().numpy(), **params)            
 
             # Save the adversarial
-            np.save(self.adv_save_x + 'ml_cw2_' + 'adv{0}'.format(i), adv)
+            np.save(self.adv_save_x + 'ml_cw_lambda_fixed' + 'adv{0}'.format(i), adv)
 
             # TIME
             end_time = datetime.timestamp(datetime.now())

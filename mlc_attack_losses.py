@@ -1,15 +1,10 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from PIL import Image
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.lines import Line2D 
-import logging
-import mosek
-import gc
-from multiprocessing import Pool
+import numpy.polynomial.polynomial as poly
 
 sigmoid = nn.Sigmoid()
 softmax = nn.Softmax(dim=1)
@@ -101,19 +96,25 @@ class MSELoss(nn.Module):
 
 class SmartLoss(nn.Module):
     
-    def __init__(self, p, weight=None, size_average=True):
+    def __init__(self, coefficients, epsilon, classifier_flip_distance, num_classes, weight=None, size_average=True):
         super(SmartLoss, self).__init__()
+        
+        if epsilon >= classifier_flip_distance:
+            self.p = 1
+        else:
+            estimate = poly.polyval(epsilon, coefficients)
+            self.p = np.minimum(1,(estimate / 80))
+            print(epsilon, estimate, self.p)
+
         self.weight = weight
-        self.p = p
 
     def forward(self, x, y):
         bce = torch.nn.BCELoss(weight=self.weight)
-        log_loss = 0.5 * self.p * bce(x,y)
-        positive_loss = (1 - 0.5*self.p) * (1-x)
-        negative_loss = (1 - 0.5*self.p) * x
-        linear_loss = y * positive_loss + (1-y) * negative_loss
+        log_loss = bce(x,y)
+        linear_loss = (y * (1-x) + (1-y) * x)
 
         if self.weight is not None:
             loss = loss * self.weight
-        loss_total = torch.mean(linear_loss) + log_loss
+        # loss_total = (1 - 0.5*self.p) * torch.mean(linear_loss) + 0.5 * self.p * log_loss
+        loss_total = (1 - 0.5*self.p) * torch.mean(linear_loss) + 0.5*self.p * log_loss
         return loss_total

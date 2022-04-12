@@ -10,12 +10,12 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, get_weights, correlation_mi_fgsm
+from attacks import pgd, fgsm, mi_fgsm, correlation_mi_fgsm
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from src.helper_functions.voc import Voc2007Classification
-from create_model import create_q2l_model
+from create_q2l_model import create_q2l_model
 from src.helper_functions.nuswide_asl import NusWideFiltered
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
@@ -26,7 +26,6 @@ parser = argparse.ArgumentParser()
 
 # MSCOCO 2014
 parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('attack_type', type=str, default='pgd')
 parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
 parser.add_argument('--model_name', type=str, default='tresnet_l')
 parser.add_argument('--num-classes', default=80)
@@ -35,7 +34,6 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 
 # PASCAL VOC2007
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
-# parser.add_argument('attack_type', type=str, default='PGD')
 # parser.add_argument('--model-path', default='./models/tresnetxl-asl-voc-epoch80', type=str)
 # parser.add_argument('--model_name', type=str, default='tresnet_xl')
 # parser.add_argument('--num-classes', default=20)
@@ -44,7 +42,6 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 
 # # # NUS_WIDE
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
-# parser.add_argument('attack_type', type=str, default='pgd')
 # parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
 # parser.add_argument('--model_name', type=str, default='tresnet_l')
 # parser.add_argument('--num-classes', default=81)
@@ -113,17 +110,18 @@ data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
 
-
-flipup_correlations = np.load('experiment_results/flipup-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, args.attack_type, args.model_type))[1]
-flipdown_correlations = np.load('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, args.attack_type, args.model_type))[1]
-
+flipup_correlations = np.load('experiment_results/flipup-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
+flipdown_correlations = np.load('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
 
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
-correlation_results = [[[] for x in range(6)] for i in range(4)]
-
-
+label_subset_lengths = [10]
+gamma_values = [1]
+tree_depths = [3]
+tree_widths = [3]
+correlation_results = [[[[[] for x in range(len(tree_depths))] for x in range(len(tree_depths))] for x in range(len(gamma_values))] for i in range(len(label_subset_lengths))]
+print(np.array(correlation_results).shape)
 #############################  EXPERIMENT LOOP #############################
 
 sample_count = 0
@@ -135,34 +133,37 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     if sample_count >= NUMBER_OF_SAMPLES:
         break
 
-    for index, number_of_attacked_labels in enumerate([5]):
+    for number_of_attacked_labels_id, number_of_attacked_labels in enumerate(label_subset_lengths):
+        for gamma_id, gamma in enumerate(gamma_values):
+            for tree_depth_id, tree_depth in enumerate(tree_depths):
+                for tree_width_id, tree_width in enumerate(tree_widths):
 
-        # Do the inference
-        with torch.no_grad():
-            pred = torch.sigmoid(model(tensor_batch)) > args.th
-            target = torch.clone(pred).detach()
-            target = ~target
+                    # Do the inference
+                    with torch.no_grad():
+                        pred = torch.sigmoid(model(tensor_batch)) > args.th
+                        target = torch.clone(pred).detach()
+                        target = ~target
 
-        # perform the attack
-        if args.attack_type == 'PGD':
-            pass
-        elif args.attack_type == 'FGSM':
-            pass
-        elif args.attack_type == 'MI-FGSM':
-            correlation_results[index][0].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 0, number_of_attacked_labels,1,1,  device="cuda"))
-            correlation_results[index][1].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 1, number_of_attacked_labels,1,1,  device="cuda"))
-            # correlation_results[index][2].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 0.5, number_of_attacked_labels,  device="cuda"))
-            # correlation_results[index][3].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 0.75, number_of_attacked_labels,  device="cuda"))
-            correlation_results[index][4].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 1, number_of_attacked_labels, 5, 5, device="cuda"))
-            # correlation_results[index][5].extend(correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, 2, number_of_attacked_labels, random=True, device="cuda"))
-        else:
-            print("Unknown attack")
-            break
+                    # perform the attack
+                    epsilon = correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, gamma, number_of_attacked_labels, tree_width, tree_depth, device="cuda")
+                    correlation_results[number_of_attacked_labels_id][gamma_id][tree_depth_id][tree_width_id].extend(epsilon)
+                    print(epsilon)
+            
+    
 
     sample_count += args.batch_size
     print('batch number:',i)
 
-for l in correlation_results:
-    print([np.mean(x) for x in l])
-    # print([(np.mean(x), np.std(x)) for x in l])
-# print(np.mean(np.array(correlation_results), axis=1))
+print(correlation_results)
+
+numpy_results = np.zeros((len(label_subset_lengths), len(gamma_values), len(tree_depths), len(tree_widths), 2))
+
+for number_of_attacked_labels_id, number_of_attacked_labels in enumerate(label_subset_lengths):
+        for gamma_id, gamma in enumerate(gamma_values):
+            for tree_depth_id, tree_depth in enumerate(tree_depths):
+                for tree_width_id, tree_width in enumerate(tree_widths):
+                    values = correlation_results[number_of_attacked_labels_id][gamma_id][tree_depth_id][tree_width_id]
+                    numpy_results[number_of_attacked_labels_id, gamma_id, tree_depth_id, tree_width_id, 0] = np.mean(values)
+                    numpy_results[number_of_attacked_labels_id, gamma_id, tree_depth_id, tree_width_id, 1] = np.std(values)
+
+np.save('experiment_results/tree-depth-x-branches.npy', numpy_results)

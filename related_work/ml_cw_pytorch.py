@@ -76,7 +76,7 @@ class MLCarliniWagnerL2(object):
             prev = 1e10
             for iteration in range(max_iter):
 
-                output, loss, l2dist, newimg = criterion2(self.model, y_target_t, modifier, x_t, self.clip_max, self.clip_min, const_t)
+                output, loss, l2dist, newimg = criterion(self.model, y_target_t, modifier, x_t, self.clip_max, self.clip_min, const_t)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -124,6 +124,9 @@ class MLCarliniWagnerL2(object):
                         o_bestoutput[e] = sc
                         # adjust the constant as needed
 
+            print('lambda =',CONST)
+            print('l-infinity =', l2dist)
+
             for e in range(batch_size):
                 lab = batchlab[e]
                 sc = np.array(bestoutput[e])
@@ -163,33 +166,14 @@ def criterion(model, y, modifier, x_t, clip_max, clip_min, const):
     other = (torch.tanh(x_t) + 1) / \
                  2 * (clip_max - clip_min) + clip_min
     l2dist = torch.sum((newimg - other).pow(2), (1,2,3))
+    linf_dist = torch.max(torch.abs(newimg - other))
+    linf_dist = torch.unsqueeze(linf_dist, 0)
     temp = - y * (output - 0.5)
     loss1 = torch.sum(torch.max(torch.zeros_like(temp), temp), 1)
     # sum up the losses
-    loss2 = torch.sum(l2dist)
+    loss2 = torch.sum(linf_dist)
     loss1 = torch.sum(const * loss1)
     loss = loss1 + loss2
 
-    return output, loss, l2dist, newimg
+    return output, loss, linf_dist, newimg
 
-
-def criterion2(model, y, modifier, x_t, clip_max, clip_min, const):
-    newimg = (torch.tanh(modifier + x_t) + 1) / 2
-    newimg = newimg * (clip_max - clip_min) + clip_min
-
-    output = torch.sigmoid(model(newimg))
-    # distance to the input data
-    other = (torch.tanh(x_t) + 1) / \
-                 2 * (clip_max - clip_min) + clip_min
-    l2dist = torch.sum((newimg - other).pow(2), (1,2,3))
-    
-    y = (y + 1) / 2
-    cost = torch.nn.BCELoss()
-    loss1 = cost(output, y)
-
-    # sum up the losses
-    loss2 = torch.sum(l2dist)
-    loss1 = torch.sum(const * loss1)
-    loss = loss1 + loss2
-
-    return output, loss, l2dist, newimg

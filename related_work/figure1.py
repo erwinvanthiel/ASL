@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append('../')
 import torch
 from src.helper_functions.helper_functions import parse_args
 from src.loss_functions.losses import AsymmetricLoss, AsymmetricLossOptimized
@@ -6,11 +8,10 @@ from src.models import create_model
 import argparse
 import matplotlib
 import torchvision.transforms as transforms
-# matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, get_weights
+from attacks import pgd, fgsm, mi_fgsm
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss, SmartLoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
@@ -70,16 +71,34 @@ args = parse_args(parser)
 # model = asl
 
 print('Model = Q2L')
-q2l = create_q2l_model('config_coco.json')
+q2l = create_q2l_model('../config_coco.json')
 args.model_type = 'q2l'
 model = q2l
 
-for i in range(100):
+for i in range(1):
 
-clean = torch.load("related_work/clean.pt")
-adv = torch.load("related_work/adv.pt")
+    clean = torch.tensor(np.load("adv/q2l/MSCOCO_2014/mla_lp_clean{0}.npy".format(i)))
+    adv = torch.tensor(np.load("adv/q2l/MSCOCO_2014/mla_lp_adv{0}.npy".format(i)))
 
-pred0 = (model(clean.cuda()) > 0.5).int()
-pred1 = (model(adv.cuda()) > 0.5).int()
-print(pred0)
-print(pred1)
+    # plt.imshow(clean[0].permute(1, 2, 0))
+    # plt.show()
+    # plt.imshow(adv[0].permute(1, 2, 0))
+    # plt.show()
+
+    confidences_clean = torch.sigmoid(model(clean[:1,:,:,:].cuda())) 
+    confidences_adv = torch.sigmoid(model(adv[:1,:,:,:].cuda()))  
+    pred_clean = (confidences_clean > 0.5).int()
+    pred_adv = (confidences_adv > 0.5).int()
+
+
+    print(np.where(pred_clean.cpu().numpy() == 1)[1])
+    print(confidences_clean[np.where(pred_clean.cpu().numpy() == 1)])
+    print(confidences_adv[np.where(pred_clean.cpu().numpy() == 1)])
+
+    flips = torch.sum(torch.logical_xor(pred_clean,pred_adv)).item()
+    l_inf = torch.max(torch.abs(adv - clean)).item()
+    l_2 = torch.sqrt(torch.sum((adv - clean) * (adv - clean))).item()
+    print(flips, l_inf, l_2)
+    # plt.bar([x for x in range(80)],pred1.cpu().numpy()[0,:], color='green')
+    # plt.bar([x for x in range(80)],1-pred1.cpu().numpy()[0,:], color='red')
+    # plt.show()
