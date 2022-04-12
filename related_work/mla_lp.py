@@ -105,15 +105,11 @@ class MLLP(object):
             result = result.reshape((num_instaces, x_shape[0], x_shape[1], x_shape[2]))
             temp_adv_x = np.clip(adv_x + result, a_min=self.clip_min, a_max=self.clip_max)
 
-            print('difference between x and adv', torch.sum(torch.FloatTensor(x) - torch.FloatTensor(temp_adv_x)))
-
             x_t = torch.FloatTensor(temp_adv_x)
             if torch.cuda.is_available():
                 x_t = x_t.cuda()
 
             temp_adv_output = torch.sigmoid(self.model(x_t)).cpu().detach().numpy()
-
-
 
             for i in range(num_instaces):
                 if i in error_idx:

@@ -15,19 +15,10 @@ import math
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+
 sigmoid = nn.Sigmoid()
 softmax = nn.Softmax(dim=1)
 
-
-def get_top_n_weights(outputs, number_of_attacked_labels, target_vector, random=False):
-    rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
-    rankings = torch.argsort(rankings, dim=1, descending=False)
-    weights = torch.zeros(target_vector.shape)
-    if random == True:
-        weights[:, np.random.permutation(target_vector.shape[1])[0:number_of_attacked_labels]] = 1
-    else:
-        weights[:, rankings[:, 0:number_of_attacked_labels]] = 1
-    return weights
 
 def pgd(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, alpha=2/255, iters=10, device='cuda'):
 
@@ -75,7 +66,7 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
 
     L = loss_function
 
-    alpha = 1/256
+    alpha = (1/256)/10
     iters = int(eps / alpha)
     # iters = 10
     # alpha = eps / iters
@@ -87,7 +78,10 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
 
         # USE SIGMOID FOR MULTI-LABEL CLASSIFIER!
 
+
         outputs = sigmoid(model(images)).to(device)
+
+
         model.zero_grad()
         cost = L(outputs, target.detach())
         cost.backward()
@@ -105,6 +99,16 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
     images = torch.clamp(images, min=0, max=1).detach()
             
     return images
+
+def get_top_n_weights(outputs, number_of_attacked_labels, target_vector, random=False):
+    rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
+    rankings = torch.argsort(rankings, dim=1, descending=False)
+    weights = torch.zeros(target_vector.shape)
+    if random == True:
+        weights[:, np.random.permutation(target_vector.shape[1])[0:number_of_attacked_labels]] = 1
+    else:
+        weights[:, rankings[:, 0:number_of_attacked_labels]] = 1
+    return weights
 
 
 def get_weights_from_correlations(flipup_correlations, flipdown_correlations, target, outputs, number_of_labels, gamma, number_of_branches, branch_depth):
@@ -132,7 +136,7 @@ def get_easiest_n_labels(target, flipup_correlations, flipdown_correlations, out
 
         normalized_confidences = np.abs(outputs) / np.max(np.abs(outputs))
 
-        return look_ahead_easiest_n_labels(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth)
+        return generate_subset(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth)
         
 class TreeOfLists():
 
@@ -153,7 +157,7 @@ class TreeOfLists():
         return total_list
 
 
-def look_ahead_easiest_n_labels(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth):
+def generate_subset(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth):
 
     confidence_rankings = np.argsort(normalized_confidences)
     root_label = confidence_rankings[len(confidence_rankings) - 1].item()
@@ -164,17 +168,26 @@ def look_ahead_easiest_n_labels(normalized_confidences, instance_correlation_mat
     # We iteratively add a label until pre-specified length is reached
     for l in range(number_of_labels-1):
 
+        print("Iteration", l)
+
         # We have 'number_of_branches' branches to explore up until depth 'branch_depth' for the best option
         root = TreeOfLists()
         root.baselist = base_label_set.copy()
         parents = [root]
         children = []
-        depth = min(branch_depth, number_of_labels - len(base_label_set))
+        depth = min(branch_depth, 1 + number_of_labels - len(base_label_set))
+
+        if depth < 2:
+            return base_label_set
 
         # Look mutiple levels ahead and pick the best option to add to the list
-        for d in range(depth):
+        for d in range(depth - 1):
+
+            print("new level")
 
             for parent in parents:
+
+                print(parent.get_list())
 
                 current_label_set = parent.get_list()
 
@@ -206,11 +219,14 @@ def look_ahead_easiest_n_labels(normalized_confidences, instance_correlation_mat
         best_option = None
         for p in parents:
             obj_value = objective_function(p.get_list(), instance_correlation_matrix, normalized_confidences, gamma)
+            print(p.get_list(), obj_value)
             if obj_value > max_obj_value:
                 max_obj_value = obj_value
                 best_option = p
+        print(best_option.added_labels[0])
 
         base_label_set.append(best_option.added_labels[0])
+
  
     return base_label_set
 
@@ -230,7 +246,7 @@ def correlation_mi_fgsm(model, images, flipup_correlations, flipdown_correlation
     images = images.to(device).detach()
     model = model.to(device)
 
-    alpha = 1/256
+    alpha = (1/256)/10 
     mu = 1.0
     g = 0
 
@@ -283,7 +299,7 @@ def correlation_mi_fgsm(model, images, flipup_correlations, flipdown_correlation
             if flips.sum() >= target.shape[0] * number_of_labels:
                 done = True
         iters = iters + 1
-        if iters > 100:
+        if iters > 250:
             done = True
             print("couldn't flip all labels, ", len([x for x in list(epsilon_values) if x == 0]), gamma)
             
@@ -301,8 +317,6 @@ def fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, devic
     loss = nn.BCELoss()
     images.requires_grad = True
 
-    # print(torch.cuda.memory_summary(device=None, abbreviated=False))
-
     # USE SIGMOID FOR MULTI-LABEL CLASSIFIER!
     outputs = sigmoid(model(images)).to(device)
 
@@ -318,4 +332,3 @@ def fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, devic
     images = torch.clamp(images, min=0, max=1)
 
     return images
-
