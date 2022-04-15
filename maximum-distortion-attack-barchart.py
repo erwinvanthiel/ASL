@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib as mpl
 mpl.style.use('classic')
-model = 'q2l'
+model = 'asl'
 dataset = 'MSCOCO_2014'
 
 flipped_labels = np.load('experiment_results/maxdist_epsilon-bce+lin-{0}-{1}.npy'.format(model, dataset))
@@ -58,10 +58,12 @@ def barchart():
 
 
 def lineplot():
-
-	plt.plot(EPSILON_VALUES, means_bce, label='BCELoss/Patient')
-	plt.plot(EPSILON_VALUES, means_linear, label='LinearLoss/Greedy')
-	plt.plot(EPSILON_VALUES, means_smart)
+	plt.plot(EPSILON_VALUES, means_bce, color='blue')
+	plt.plot(EPSILON_VALUES, means_linear, color='red')
+	# plt.plot(EPSILON_VALUES, means_smart, label='SmartLoss', color='green')
+	plt.fill_between(EPSILON_VALUES, means_bce - std_bce, means_bce + std_bce, alpha=0.2, label='BCELoss/Patient', color='blue')
+	plt.fill_between(EPSILON_VALUES, means_linear - std_linear, means_linear + std_linear, alpha=0.2, label='LinearLoss/Greedy', color='red')
+	# plt.fill_between(EPSILON_VALUES, means_smart - std_smart, means_smart + std_smart, alpha=0.5, label='SmartLoss', color='green')
 	plt.legend()
 	plt.show()
 

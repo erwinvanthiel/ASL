@@ -10,7 +10,7 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, correlation_mi_fgsm
+from attacks import pgd, fgsm, mi_fgsm, unrestricted_mi_fgsm, get_weights_from_correlations
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
@@ -115,11 +115,11 @@ flipdown_correlations = np.load('experiment_results/flipdown-correlations-{0}-{1
 
 ################ EXPERIMENT VARIABLES ########################
 
-NUMBER_OF_SAMPLES = 100
+NUMBER_OF_SAMPLES = 1
 label_subset_lengths = [10]
 gamma_values = [1]
-tree_depths = [3]
-tree_widths = [3]
+tree_depths = [1,3,5]
+tree_widths = [1,3,5]
 correlation_results = [[[[[] for x in range(len(tree_depths))] for x in range(len(tree_depths))] for x in range(len(gamma_values))] for i in range(len(label_subset_lengths))]
 print(np.array(correlation_results).shape)
 #############################  EXPERIMENT LOOP #############################
@@ -140,16 +140,17 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
                     # Do the inference
                     with torch.no_grad():
-                        pred = torch.sigmoid(model(tensor_batch)) > args.th
+                        outputs = torch.sigmoid(model(tensor_batch))
+                        pred = (outputs > args.th).int()
                         target = torch.clone(pred).detach()
-                        target = ~target
+                        target = 1-target
 
                     # perform the attack
-                    epsilon = correlation_mi_fgsm(model, tensor_batch.detach(), flipup_correlations, flipdown_correlations, gamma, number_of_attacked_labels, tree_width, tree_depth, device="cuda")
+                    weights = get_weights_from_correlations(flipup_correlations, flipdown_correlations, target, outputs, number_of_attacked_labels, gamma, tree_width, tree_depth)
+                    epsilon = unrestricted_mi_fgsm(model, tensor_batch.detach(), target, weights)
                     correlation_results[number_of_attacked_labels_id][gamma_id][tree_depth_id][tree_width_id].extend(epsilon)
-                    print(epsilon)
+                    # print(epsilon)
             
-    
 
     sample_count += args.batch_size
     print('batch number:',i)

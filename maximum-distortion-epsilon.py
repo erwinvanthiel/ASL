@@ -147,8 +147,8 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
     
         adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
-        # adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
-        # adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SmartLoss(coefficients, epsilon, 0.20, args.num_classes), eps=epsilon, device="cuda").detach()
+        adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
+        adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SmartLoss(coefficients, epsilon, 0.20, args.num_classes), eps=epsilon, device="cuda").detach()
         
         
         with torch.no_grad():
@@ -168,12 +168,12 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
             # plt.show()
 
             pred_after_attack0 = (torch.sigmoid(model(adversarials0)) > args.th).int()
-            # pred_after_attack1 = (torch.sigmoid(model(adversarials1)) > args.th).int()
-            # pred_after_attack2 = (torch.sigmoid(model(adversarials2)) > args.th).int()
+            pred_after_attack1 = (torch.sigmoid(model(adversarials1)) > args.th).int()
+            pred_after_attack2 = (torch.sigmoid(model(adversarials2)) > args.th).int()
         
             flipped_labels[0, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack0), dim=1).cpu().numpy()
-            # flipped_labels[1, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack1), dim=1).cpu().numpy()
-            # flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2), dim=1).cpu().numpy()
+            flipped_labels[1, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack1), dim=1).cpu().numpy()
+            flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2), dim=1).cpu().numpy()
             
 
     sample_count += args.batch_size
@@ -192,8 +192,8 @@ std_smart = np.std(flipped_labels,axis=2)[2]
 
 coefs = poly.polyfit(EPSILON_VALUES, np.maximum(means_bce,means_linear), 3)
 
-# np.save('experiment_results/maxdist_epsilon-coefficients-{0}-{1}'.format(args.model, args.dataset_type), coefs)
-# np.save('experiment_results/maxdist_epsilon-bce+lin-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
+np.save('experiment_results/maxdist_epsilon-coefficients-{0}-{1}'.format(args.model, args.dataset_type), coefs)
+np.save('experiment_results/maxdist_epsilon-bce+lin-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
 
 
 

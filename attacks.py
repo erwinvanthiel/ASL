@@ -119,24 +119,9 @@ def get_weights_from_correlations(flipup_correlations, flipdown_correlations, ta
     target = target.cpu().numpy()
 
     for i in range(target.shape[0]):
-        weights[i, get_easiest_n_labels(target[i,:], flipup_correlations, flipdown_correlations, outputs[i,:], number_of_labels, gamma, number_of_branches, branch_depth)] = 1
+        weights[i, generate_subset(target[i,:], outputs[i, :], flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, branch_depth)] = 1
     return weights
 
-
-def get_easiest_n_labels(target, flipup_correlations, flipdown_correlations, outputs, number_of_labels, gamma, number_of_branches, branch_depth):    
-
-    for i in range(target.shape[0]):
-        
-        negative_indices = np.where(target == 0)
-        positive_indices = np.where(target == 1)
-
-        instance_correlation_matrix = np.zeros(flipup_correlations.shape)
-        instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
-        instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
-
-        normalized_confidences = np.abs(outputs) / np.max(np.abs(outputs))
-
-        return generate_subset(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth)
         
 class TreeOfLists():
 
@@ -157,7 +142,16 @@ class TreeOfLists():
         return total_list
 
 
-def generate_subset(normalized_confidences, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth):
+def generate_subset(target, outputs, flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, branch_depth):
+
+    negative_indices = np.where(target == 0)
+    positive_indices = np.where(target == 1)
+
+    instance_correlation_matrix = np.zeros(flipup_correlations.shape)
+    instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
+    instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
+
+    normalized_confidences = np.abs(outputs) / np.max(np.abs(outputs))
 
     confidence_rankings = np.argsort(normalized_confidences)
     root_label = confidence_rankings[len(confidence_rankings) - 1].item()
@@ -168,26 +162,17 @@ def generate_subset(normalized_confidences, instance_correlation_matrix, number_
     # We iteratively add a label until pre-specified length is reached
     for l in range(number_of_labels-1):
 
-        print("Iteration", l)
-
         # We have 'number_of_branches' branches to explore up until depth 'branch_depth' for the best option
         root = TreeOfLists()
         root.baselist = base_label_set.copy()
         parents = [root]
         children = []
-        depth = min(branch_depth, 1 + number_of_labels - len(base_label_set))
-
-        if depth < 2:
-            return base_label_set
+        depth = min(branch_depth, number_of_labels - len(base_label_set))
 
         # Look mutiple levels ahead and pick the best option to add to the list
-        for d in range(depth - 1):
-
-            print("new level")
+        for d in range(depth):
 
             for parent in parents:
-
-                print(parent.get_list())
 
                 current_label_set = parent.get_list()
 
@@ -219,15 +204,12 @@ def generate_subset(normalized_confidences, instance_correlation_matrix, number_
         best_option = None
         for p in parents:
             obj_value = objective_function(p.get_list(), instance_correlation_matrix, normalized_confidences, gamma)
-            print(p.get_list(), obj_value)
             if obj_value > max_obj_value:
                 max_obj_value = obj_value
                 best_option = p
-        print(best_option.added_labels[0])
-
         base_label_set.append(best_option.added_labels[0])
 
- 
+    
     return base_label_set
 
 
@@ -240,28 +222,21 @@ def objective_function(label_set, instance_correlation_matrix, normalized_confid
     return gamma * correlation_score + (1-gamma) * confidence_score
 
 
-def correlation_mi_fgsm(model, images, flipup_correlations, flipdown_correlations, gamma, number_of_labels, number_of_branches, branch_depth, random=False, device='cuda'):
+def unrestricted_mi_fgsm(model, images, target, weights, device='cuda'):
 
     # put tensors on the GPU
     images = images.to(device).detach()
     model = model.to(device)
-
+    target = target.to(device).float()
+    weights = weights.to(device)
+    original_pred = (torch.sigmoid(model(images)) > 0.5).int()
+    number_of_labels = int(torch.sum(weights).item() / target.shape[0])
     alpha = (1/256)/10 
     mu = 1.0
     g = 0
 
-    with torch.no_grad():
-        original_output = sigmoid(model(images)).detach()
-        original_pred = (original_output > 0.5).int().to(device).detach()
-        target = (1 - original_pred).to(device).float().detach()
-        rankings = torch.argsort(torch.abs(original_output), descending=True).detach()
-        if random is True:
-            weights = torch.zeros(target.shape).to(device)
-            weights[:, np.random.permutation(target.shape[1])[0:number_of_labels]] = 1
-        else:
-            weights = get_weights_from_correlations(flipup_correlations, flipup_correlations, target, original_output, number_of_labels, gamma, number_of_branches, branch_depth,).to(device)
-    
     L = torch.nn.BCELoss(weight=weights)
+    print(number_of_labels)
 
     done = False
     iters = 0
@@ -301,7 +276,7 @@ def correlation_mi_fgsm(model, images, flipup_correlations, flipdown_correlation
         iters = iters + 1
         if iters > 250:
             done = True
-            print("couldn't flip all labels, ", len([x for x in list(epsilon_values) if x == 0]), gamma)
+            print("couldn't flip {0} labels, ".format(len([x for x in list(epsilon_values) if x == 0])))
             
     return [x for x in list(epsilon_values) if x != 0]
 
@@ -332,3 +307,6 @@ def fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, devic
     images = torch.clamp(images, min=0, max=1)
 
     return images
+
+
+    
