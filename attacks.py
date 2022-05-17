@@ -100,6 +100,7 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
             
     return images
 
+
 def get_top_n_weights(outputs, number_of_attacked_labels, target_vector, random=False):
     rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
     rankings = torch.argsort(rankings, dim=1, descending=False)
@@ -144,16 +145,17 @@ class TreeOfLists():
 
 def generate_subset(target, outputs, flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, branch_depth):
 
-    negative_indices = np.where(target == 0)
-    positive_indices = np.where(target == 1)
+    negative_indices = np.where(target == 0)[1]
+    positive_indices = np.where(target == 1)[1]
 
     instance_correlation_matrix = np.zeros(flipup_correlations.shape)
     instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
     instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
+    instance_correlation_matrix = instance_correlation_matrix / np.max(instance_correlation_matrix)
 
-    normalized_confidences = np.abs(outputs) / np.max(np.abs(outputs))
+    normalized_confidences = np.squeeze(np.abs(outputs) / np.max(np.abs(outputs)))
 
-    confidence_rankings = np.argsort(normalized_confidences)
+    confidence_rankings = np.squeeze(np.argsort(normalized_confidences))
     root_label = confidence_rankings[len(confidence_rankings) - 1].item()
 
     # Initialize the label set with easiest/closest label
@@ -182,11 +184,11 @@ def generate_subset(target, outputs, flipup_correlations, flipdown_correlations,
                 correlation_to_set = instance_correlation_matrix[:, current_label_set].sum(axis=1)
                 correlation_from_set = instance_correlation_matrix[current_label_set, :].sum(axis=0)
                 correlation_factors = correlation_to_set + correlation_from_set
-                normalized_correlation_factors = correlation_factors / np.max(correlation_factors)
+                # normalized_correlation_factors = (correlation_factors-np.min(correlation_factors)) / np.max(correlation_factors-np.min(correlation_factors))
 
                 # gamma determines the priority distribution between label confidence and correlation
-                scores = gamma * normalized_correlation_factors + (1-gamma) * normalized_confidences
-                ranking = np.argsort(scores)
+                scores = gamma * correlation_factors + (1-gamma) * normalized_confidences
+                ranking = np.squeeze(np.argsort(scores))
                 updated_ranking = [x for x in ranking if x not in current_label_set]
 
                 ## FOR EACH BRANCH ADD A TOP LABEL FROM THE RANKING
@@ -195,7 +197,7 @@ def generate_subset(target, outputs, flipup_correlations, flipdown_correlations,
                     parent.add_child(added_label)
 
                 children.extend(parent.children)
-
+            # print([c.get_list() for c in children])
             parents = children
             children = []
 
@@ -209,7 +211,6 @@ def generate_subset(target, outputs, flipup_correlations, flipdown_correlations,
                 best_option = p
         base_label_set.append(best_option.added_labels[0])
 
-    
     return base_label_set
 
 
@@ -217,8 +218,7 @@ def objective_function(label_set, instance_correlation_matrix, normalized_confid
     correlation_score = 0
     for label in label_set:
         correlation_score = correlation_score + instance_correlation_matrix[label, label_set].sum()
-    confidence_score = normalized_confidences[label_set].sum()
-
+    confidence_score = np.squeeze(normalized_confidences)[label_set].sum()
     return gamma * correlation_score + (1-gamma) * confidence_score
 
 
