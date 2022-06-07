@@ -56,7 +56,7 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 
 # IMPORTANT PARAMETERS!
 parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=5, type=int,
+parser.add_argument('-b', '--batch-size', default=1, type=int,
                     metavar='N', help='mini-batch size (default: 16)')
 parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
                     help='number of data loading workers (default: 16)')
@@ -74,16 +74,17 @@ args.model_type = 'asl'
 model = asl
 
 # print('Model = Q2L')
-# q2l = create_q2l_model('config_coco.json')
+# q2l = create_q2l_model('config_nuswide.json')
 # args.model_type = 'q2l'
 # model = q2l
 
 ################ EXPERIMENT VARIABLES ########################
 
-NUMBER_OF_SAMPLES = 100
-epsilon = 0.004
+NUMBER_OF_SAMPLES = 5
+epsilon = 0.001
 
 flipped_labels = np.zeros((args.num_classes, NUMBER_OF_SAMPLES))
+actual_samples = np.zeros((args.num_classes))
 confidences = np.zeros((args.num_classes, NUMBER_OF_SAMPLES))
 
 for target_label in range(args.num_classes):
@@ -101,20 +102,20 @@ for target_label in range(args.num_classes):
                                         transforms.Resize((args.image_size, args.image_size)),
                                         transforms.ToTensor(),
                                         # normalize, # no need, toTensor does normalization
-                                    ]), label_indices_negative=np.array([target_label]))
+                                    ]), label_indices_positive=np.array([target_label]))
     elif args.dataset_type == 'PASCAL_VOC2007':
 
         dataset = Voc2007Classification('trainval',
                                         transform=transforms.Compose([
                         transforms.Resize((args.image_size, args.image_size)),
                         transforms.ToTensor(),
-                    ]), train=True, label_indices_negative=np.array([target_label]))
+                    ]), train=True, label_indices_positive=np.array([target_label]))
 
     elif args.dataset_type == 'NUS_WIDE':
         
         dataset = NusWideFiltered('train', transform=transforms.Compose([
                         transforms.Resize((args.image_size, args.image_size)),
-                        transforms.ToTensor()]), label_indices_negative=np.array([target_label])
+                        transforms.ToTensor()]), label_indices_positive=np.array([target_label])
         )
 
     # Pytorch Data loader
@@ -143,27 +144,30 @@ for target_label in range(args.num_classes):
             pred = (output > args.th).int()
             target = torch.clone(pred).detach()
             target = 1 - target
+            weights = torch.zeros(target.shape)
+            weights[:, target_label] = 1 
 
-        if pred[:,target_label].sum() > 0:
+        if pred[:,target_label].sum() < args.batch_size:
             continue
 
-        adversarials = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
+        adversarials = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights.to(device)), eps=epsilon, device="cuda").detach()
         
         with torch.no_grad():
         
             pred_after_attack = (torch.sigmoid(model(adversarials)) > args.th).int()
-            print(pred_after_attack[:, target_label].cpu())
-            flipped_labels[target_label, batch_number*args.batch_size:(batch_number+1)*args.batch_size] = pred_after_attack[:, target_label].cpu()
+            flipped_labels[target_label, batch_number*args.batch_size:(batch_number+1)*args.batch_size] = args.batch_size - pred_after_attack[:, target_label].cpu()
             confidences[target_label, batch_number*args.batch_size:(batch_number+1)*args.batch_size] = output[:, target_label].cpu()
             
         print('batch number:',batch_number)
         sample_count += args.batch_size
         batch_number += 1
+        actual_samples[target_label] += 1
         
 
 
-np.save('experiment_results/maxdist_singlelabel_flips-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
-np.save('experiment_results/maxdist_singlelabel_confidences-{0}-{1}'.format(args.model_type, args.dataset_type), confidences)
+np.save('experiment_results/positive-label-flips-actual-samples-{0}-{1}'.format(args.model_type, args.dataset_type), actual_samples)
+np.save('experiment_results/positive-label-flips-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
+np.save('experiment_results/positive-label-confidences-{0}-{1}'.format(args.model_type, args.dataset_type), confidences)
 
 
 

@@ -18,6 +18,7 @@ from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetect
 from src.helper_functions.voc import Voc2007Classification
 from create_q2l_model import create_q2l_model
 from src.helper_functions.nuswide_asl import NusWideFiltered
+from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss, SmartLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
@@ -54,9 +55,9 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 # IMPORTANT PARAMETERS!
 parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('-b', '--batch-size', default=5, type=int,
-					metavar='N', help='mini-batch size (default: 16)')
+                    metavar='N', help='mini-batch size (default: 16)')
 parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
-					help='number of data loading workers (default: 16)')
+                    help='number of data loading workers (default: 16)')
 args = parse_args(parser)
 
 ########################## SETUP THE MODELS AND LOAD THE DATA #####################
@@ -75,33 +76,35 @@ q2l = create_q2l_model('../config_coco.json')
 args.model_type = 'q2l'
 model = q2l
 
-ml_cw_flips = []
-mi_fgsm_flips = []
+################ LOAD PROFILE ################################
 
-for i in range(5):
-	print(i)
-	clean = torch.tensor(np.load("adv/q2l/MSCOCO_2014/ml_cw_lambda_fixedclean{0}.npy".format(i)))
-	adv = torch.tensor(np.load("adv/q2l/MSCOCO_2014/ml_cw_lambda_fixedadv{0}.npy".format(i)))
-	pred_clean = (torch.sigmoid(model(clean.cuda())) > 0.5).int()
+coefs = np.load('../experiment_results/{0}-{1}-profile.npy'.format(args.model_type, args.dataset_type))
+epsilons = np.load('../experiment_results/{0}-{1}-profile-epsilons.npy'.format(args.model_type, args.dataset_type))
+max_eps = np.max(epsilons)
+min_eps = np.min(max_eps) / 10
+EPSILON_VALUES = [0.5*min_eps, min_eps, 2*min_eps, 4*min_eps, 6*min_eps, 8*min_eps, 10*min_eps]
+print(EPSILON_VALUES)
+##############################################################
 
-	# get results cw attack
-	pred_cw = (torch.sigmoid(model(adv.cuda())) > 0.5).int()
+for i in range(1):
 
-	# attack with mifgsm and get results
-	epsilon = torch.max(torch.abs(clean - adv))
-	target = 1 - pred_clean
-	mi_fgsm_adv = mi_fgsm(model, clean, target, eps=epsilon)
-	mi_fgsm_adv1 = mi_fgsm(model, clean, target, loss_function=LinearLoss(), eps=epsilon)
-	pred_mi_fgsm = (torch.sigmoid(model(mi_fgsm_adv.cuda())) > 0.5).int()
-	pred_mi_fgsm1 = (torch.sigmoid(model(mi_fgsm_adv1.cuda())) > 0.5).int()
+    for epsilon in EPSILON_VALUES:
 
-	# store flips
-	flips_cw = torch.sum(torch.logical_xor(pred_clean,pred_cw)).item()
-	flips_mifgsm = torch.sum(torch.logical_xor(pred_clean,pred_mi_fgsm)).item()
-	flips_mifgsm1 = torch.sum(torch.logical_xor(pred_clean,pred_mi_fgsm1)).item()
-	print(flips_cw, flips_mifgsm, flips_mifgsm1)
-	ml_cw_flips.append(flips_cw)
-	mi_fgsm_flips.append(flips_mifgsm)
+        clean = torch.tensor(np.load("adv/q2l/MSCOCO_2014/mla_lp_clean{0}.npy".format(i)))
 
-print(np.mean(ml_cw_flips))
-print(np.mean(mi_fgsm_flips))
+        # get results cw attack
+        pred = (torch.sigmoid(model(clean.cuda())) > 0.5).int()
+
+        # attack with mifgsm and get results
+        target = 1 - pred
+
+        mi_fgsm_adv = mi_fgsm(model, clean.detach(), target, loss_function=SmartLoss(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
+        pred_mi_fgsm = (torch.sigmoid(model(mi_fgsm_adv.cuda())) > 0.5).int()
+        flips = torch.sum(torch.logical_xor(pred, pred_mi_fgsm)).item()
+        print(flips)
+
+        plt.imshow(clean[0].permute(1, 2, 0))
+        plt.show()
+        plt.imshow(mi_fgsm_adv.cpu()[0].permute(1, 2, 0))
+        plt.show()
+    

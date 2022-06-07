@@ -70,19 +70,19 @@ args = parse_args(parser)
 
 ########################## SETUP THE MODELS AND LOAD THE DATA #####################
 
-# print('Model = ASL')
-# state = torch.load(args.model_path, map_location='cpu')
-# asl = create_model(args).cuda()
-# model_state = torch.load(args.model_path, map_location='cpu')
-# asl.load_state_dict(model_state["state_dict"])
-# asl.eval()
-# args.model_type = 'asl'
-# model = asl
+print('Model = ASL')
+state = torch.load(args.model_path, map_location='cpu')
+asl = create_model(args).cuda()
+model_state = torch.load(args.model_path, map_location='cpu')
+asl.load_state_dict(model_state["state_dict"])
+asl.eval()
+args.model_type = 'asl'
+model = asl
 
-print('Model = Q2L')
-q2l = create_q2l_model('config_nuswide.json')
-args.model_type = 'q2l'
-model = q2l
+# print('Model = Q2L')
+# q2l = create_q2l_model('config_nuswide.json')
+# args.model_type = 'q2l'
+# model = q2l
 
 
 
@@ -156,7 +156,7 @@ for i, (tensor_batch, _) in enumerate(data_loader):
     sample_count += 1
 
 iters = 0
-interval = 50
+interval = 10
 converged = False
 
 bce_samples = torch.clone(samples)
@@ -220,11 +220,13 @@ while not converged:
         if iters % interval == 0:
 
             with torch.no_grad():
-                bce_output = torch.sigmoid(model(bce_samples[i].to(device).unsqueeze(0)))
+                adv = torch.clamp(bce_samples[i], min=0, max=1)
+                bce_output = torch.sigmoid(model(adv.to(device).unsqueeze(0)))
                 bce_pred = (bce_output > args.th).int()
                 bce_flips += torch.sum(torch.logical_xor(bce_pred.cpu(), 1 - targets[i])).item()
 
-                linear_output = torch.sigmoid(model(linear_samples[i].to(device).unsqueeze(0)))
+                adv = torch.clamp(linear_samples[i], min=0, max=1)
+                linear_output = torch.sigmoid(model(adv.to(device).unsqueeze(0)))
                 linear_pred = (linear_output > args.th).int()
                 linear_flips += torch.sum(torch.logical_xor(linear_pred.cpu(), 1 - targets[i])).item()
 
@@ -243,9 +245,9 @@ while not converged:
             converged = True
 
 
-EPSILON_VALUES = [i * (1/256) for i in range(len(flipped_labels_patient))]
+EPSILON_VALUES = [i * interval * ((1/256)/10) for i in range(len(flipped_labels_patient))]
 coefs = poly.polyfit(EPSILON_VALUES, np.maximum(np.array(flipped_labels_patient),np.array(flipped_labels_patient)), 4)
-
+print(EPSILON_VALUES)
 np.save('experiment_results/{0}-{1}-profile-flips'.format(args.model_type, args.dataset_type), np.maximum(np.array(flipped_labels_patient),np.array(flipped_labels_patient)))
 np.save('experiment_results/{0}-{1}-profile'.format(args.model_type, args.dataset_type), coefs)
 np.save('experiment_results/{0}-{1}-profile-epsilons'.format(args.model_type, args.dataset_type), EPSILON_VALUES)

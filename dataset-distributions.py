@@ -6,16 +6,16 @@ from src.models import create_model
 import argparse
 import matplotlib
 import torchvision.transforms as transforms
-from pgd import create_targeted_adversarial_examples
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from fgsm import fgsm, mi_fgsm
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from src.helper_functions.voc import Voc2007Classification
 from src.helper_functions.nuswide_asl import NusWideFiltered
+import matplotlib as mpl
+mpl.style.use('classic')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
@@ -102,9 +102,4 @@ for _, (_, labels) in enumerate(data_loader):
         label_count[i] += 1
 
 
-plt.bar(range(len(label_count)), label_count)
-plt.xlabel("Label index")
-plt.ylabel("Occurrences")
-plt.title('Dataset label occurrence frequecies {0}'.format(args.dataset_type))
-plt.show()
-# plt.savefig('label-frequencies-{0}'.format(args.dataset_type))
+np.save('experiment_results/dataset-distribution-{0}'.format(args.dataset_type), label_count)

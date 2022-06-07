@@ -115,17 +115,21 @@ data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
 
-flipup_correlations = np.load('experiment_results/flipup-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
-flipdown_correlations = np.load('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
 
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
 numbers_of_levels = [x+1 for x in range(10)]
 numbers_of_branches = [x+1 for x in range(10)]
-gamma = 1
-numbers_of_labels = [10]
-objective_values = np.zeros((len(numbers_of_labels), len(numbers_of_levels), len(numbers_of_branches), NUMBER_OF_SAMPLES))
+gamma_values = [0,0.5,1]
+numbers_of_labels = [10,20]
+objective_values = np.zeros((len(gamma_values), len(numbers_of_labels), len(numbers_of_levels), len(numbers_of_branches), NUMBER_OF_SAMPLES))
+
+# load, normalise the correlations and contruct inverted correations
+flipup_correlations = np.load('experiment_results/flipup-correlations-cd-{0}-{1}.npy'.format(args.dataset_type, args.model_type))
+flipup_correlations = flipup_correlations - np.min(flipup_correlations)
+flipup_correlations = flipup_correlations / np.max(flipup_correlations)
+flipdown_correlations = 1 - flipup_correlations
 
 #############################  EXPERIMENT LOOP #############################
 
@@ -154,19 +158,21 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     instance_correlation_matrix = np.zeros(flipup_correlations.shape)
     instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
     instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
-    instance_correlation_matrix = instance_correlation_matrix / np.max(instance_correlation_matrix)
+    
 
     normalized_confidences = np.abs(output) / np.max(np.abs(output))
 
-    for number_of_labels_id, number_of_labels in enumerate(numbers_of_labels):
-        for numbers_of_levels_id, number_of_levels in enumerate(numbers_of_levels):
-            for number_of_branches_id, number_of_branches in enumerate(numbers_of_branches):
+    for gamma_id, gamma in enumerate(gamma_values):
 
-                if number_of_branches ** number_of_levels > 10000:
-                    objective_values[number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = 0
-                else:
-                    subset = generate_subset(target, output, flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, number_of_levels)
-                    objective_values[number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = objective_function(subset, instance_correlation_matrix, normalized_confidences, gamma)
+        for number_of_labels_id, number_of_labels in enumerate(numbers_of_labels):
+            for numbers_of_levels_id, number_of_levels in enumerate(numbers_of_levels):
+                for number_of_branches_id, number_of_branches in enumerate(numbers_of_branches):
+
+                    if number_of_branches ** number_of_levels > 10000:
+                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = 0
+                    else:
+                        subset = generate_subset(output, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, number_of_levels)
+                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = objective_function(subset, instance_correlation_matrix, normalized_confidences, gamma)
                 
     print(i)
 

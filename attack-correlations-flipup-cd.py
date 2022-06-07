@@ -22,12 +22,12 @@ parser = argparse.ArgumentParser()
 ########################## ARGUMENTS #############################################
 
 # MSCOCO 2014
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
-# parser.add_argument('--model_name', type=str, default='tresnet_l')
-# parser.add_argument('--num-classes', default=80)
-# parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
+parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
+parser.add_argument('--model_name', type=str, default='tresnet_l')
+parser.add_argument('--num-classes', default=80)
+parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
+parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # PASCAL VOC2007
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
@@ -47,16 +47,16 @@ parser = argparse.ArgumentParser()
 
 
 # Cross model
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
-parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
-parser.add_argument('--model_name', type=str, default='tresnet_l')
-parser.add_argument('--num-classes', default=80)
-parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
-parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+# parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
+# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
+# parser.add_argument('--model_name', type=str, default='tresnet_l')
+# parser.add_argument('--num-classes', default=80)
+# parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
+# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # IMPORTANT PARAMETERS!
 parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=16, type=int,
+parser.add_argument('-b', '--batch-size', default=1, type=int,
                     metavar='N', help='mini-batch size (default: 16)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 16)')
@@ -64,19 +64,19 @@ args = parse_args(parser)
 
 ########################## SETUP THE MODELS AND LOAD THE DATA #####################
 
-print('Model = ASL')
-state = torch.load(args.model_path, map_location='cpu')
-asl = create_model(args).cuda()
-model_state = torch.load(args.model_path, map_location='cpu')
-asl.load_state_dict(model_state["state_dict"])
-asl.eval()
-args.model_type = 'asl'
-model = asl
+# print('Model = ASL')
+# state = torch.load(args.model_path, map_location='cpu')
+# asl = create_model(args).cuda()
+# model_state = torch.load(args.model_path, map_location='cpu')
+# asl.load_state_dict(model_state["state_dict"])
+# asl.eval()
+# args.model_type = 'asl'
+# model = asl
 
-# print('Model = Q2L')
-# q2l = create_q2l_model('config_coco.json')
-# args.model_type = 'q2l'
-# model = q2l
+print('Model = Q2L')
+q2l = create_q2l_model('config_coco.json')
+args.model_type = 'q2l'
+model = q2l
 
 ################ DATASET LOADING ############################
 
@@ -115,12 +115,13 @@ data_loader = torch.utils.data.DataLoader(
 
 ################ EXPERIMENT VARIABLES  ########################
 
-NUMBER_OF_SAMPLES = 96
+NUMBER_OF_SAMPLES = 100
 EPSILON_VALUES = [0.05]
 
 #############################  EXPERIMENT LOOP #############################
 
 correlations = torch.zeros((len(EPSILON_VALUES),args.num_classes,args.num_classes))
+confidences = torch.zeros((len(EPSILON_VALUES),args.num_classes,args.num_classes))
 
 sample_count = 0
 
@@ -139,15 +140,16 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
             loss_weights = torch.zeros(target.shape).to(device)
             loss_weights[:, target_label] = 1
 
-            adversarials = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=loss_weights.detach()), eps=epsilon, device='cuda')            
+            adversarials = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=loss_weights.detach()), eps=epsilon, device='cuda').detach()            
 
             with torch.no_grad():
                 correlations[epsilon_index, target_label] += (1 / NUMBER_OF_SAMPLES) * (torch.sigmoid(model(adversarials)) - torch.sigmoid(model(tensor_batch))).sum(dim=0).cpu()
+                # confidences[epsilon_index, target_label] += torch.sigmoid(model(adversarials)).sum(dim=0).cpu()
         
         ### Code for finding suitable epsilon ###
         # target_label_confidences = []
         # for p in range(args.num_classes):
-        #     target_label_confidences.append(correlations[epsilon_index,p,p].item())
+        #     target_label_confidences.append(confidences[epsilon_index,p,p].item())
         # print(epsilon, np.min(target_label_confidences), np.mean(target_label_confidences) * NUMBER_OF_SAMPLES)
 
     sample_count += args.batch_size
@@ -156,6 +158,6 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
 
 # save the results
-np.save('experiment_results/flipup-correlations-{0}-{1}.npy'.format(args.dataset_type, args.model_type), correlations[0])
+np.save('experiment_results/flipup-correlations-{0}-{1}.npy'.format('MSCOCO_2014', args.model_type), correlations[0])
 sns.heatmap(correlations[0])
 plt.show()

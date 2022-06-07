@@ -101,18 +101,19 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
     return images
 
 
-def get_top_n_weights(outputs, number_of_attacked_labels, target_vector, random=False):
-    rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
+def get_top_n_weights(outputs, number_of_attacked_labels, random=False):
+    # rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
+    rankings = torch.abs(outputs - 0.5)
     rankings = torch.argsort(rankings, dim=1, descending=False)
-    weights = torch.zeros(target_vector.shape)
+    weights = torch.zeros(outputs.shape)
     if random == True:
-        weights[:, np.random.permutation(target_vector.shape[1])[0:number_of_attacked_labels]] = 1
+        weights[:, np.random.permutation(outputs.shape[1])[0:number_of_attacked_labels]] = 1
     else:
         weights[:, rankings[:, 0:number_of_attacked_labels]] = 1
     return weights
 
 
-def get_weights_from_correlations(flipup_correlations, flipdown_correlations, target, outputs, number_of_labels, gamma, number_of_branches, branch_depth):
+def get_weights_from_correlations(correlations, target, outputs, number_of_labels, gamma, number_of_branches, branch_depth):
 
     weights = torch.zeros(target.shape)
     outputs = (target) * outputs + (1-target) * (1-outputs)
@@ -120,7 +121,7 @@ def get_weights_from_correlations(flipup_correlations, flipdown_correlations, ta
     target = target.cpu().numpy()
 
     for i in range(target.shape[0]):
-        weights[i, generate_subset(target[i,:], outputs[i, :], flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, branch_depth)] = 1
+        weights[i, generate_subset(outputs[i, :], correlations, number_of_labels, gamma, number_of_branches, branch_depth)] = 1
     return weights
 
         
@@ -143,16 +144,9 @@ class TreeOfLists():
         return total_list
 
 
-def generate_subset(target, outputs, flipup_correlations, flipdown_correlations, number_of_labels, gamma, number_of_branches, branch_depth):
+def generate_subset(outputs, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth):
 
-    negative_indices = np.where(target == 0)[1]
-    positive_indices = np.where(target == 1)[1]
-
-    instance_correlation_matrix = np.zeros(flipup_correlations.shape)
-    instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
-    instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
-    instance_correlation_matrix = instance_correlation_matrix / np.max(instance_correlation_matrix)
-
+    
     normalized_confidences = np.squeeze(np.abs(outputs) / np.max(np.abs(outputs)))
 
     confidence_rankings = np.squeeze(np.argsort(normalized_confidences))
@@ -190,9 +184,8 @@ def generate_subset(target, outputs, flipup_correlations, flipdown_correlations,
                 scores = gamma * correlation_factors + (1-gamma) * normalized_confidences
                 ranking = np.squeeze(np.argsort(scores))
                 updated_ranking = [x for x in ranking if x not in current_label_set]
-
                 ## FOR EACH BRANCH ADD A TOP LABEL FROM THE RANKING
-                for b in range(number_of_branches):
+                for b in range(min(number_of_branches, len(updated_ranking))):
                     added_label = updated_ranking[len(updated_ranking)-1-b]
                     parent.add_child(added_label)
 

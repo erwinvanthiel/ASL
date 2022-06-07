@@ -77,13 +77,15 @@ model = q2l
 
 for i in range(1):
 
-    clean = torch.tensor(np.load("adv/q2l/MSCOCO_2014/mla_lp_clean{0}.npy".format(i)))
-    adv = torch.tensor(np.load("adv/q2l/MSCOCO_2014/mla_lp_adv{0}.npy".format(i)))
+    clean = torch.tensor(np.load("adv/q2l/MSCOCO_2014/ml_cw_clean{0}.npy".format(i)))
+    adv = torch.tensor(np.load("adv/q2l/MSCOCO_2014/ml_cw2_adv{0}.npy".format(i)))
+    print(torch.max(clean))
+    print(torch.max(adv))
 
     # plt.imshow(clean[0].permute(1, 2, 0))
     # plt.show()
-    # plt.imshow(adv[0].permute(1, 2, 0))
-    # plt.show()
+    plt.imshow(adv[0].permute(1, 2, 0))
+    plt.show()
 
     confidences_clean = torch.sigmoid(model(clean[:1,:,:,:].cuda())) 
     confidences_adv = torch.sigmoid(model(adv[:1,:,:,:].cuda()))  
@@ -91,14 +93,15 @@ for i in range(1):
     pred_adv = (confidences_adv > 0.5).int()
 
 
-    print(np.where(pred_clean.cpu().numpy() == 1)[1])
-    print(confidences_clean[np.where(pred_clean.cpu().numpy() == 1)])
-    print(confidences_adv[np.where(pred_clean.cpu().numpy() == 1)])
+    # print(np.where(pred_clean.cpu().numpy() == 1)[1])
+    # print(confidences_clean[np.where(pred_clean.cpu().numpy() == 1)])
+    # print(confidences_adv[np.where(pred_clean.cpu().numpy() == 1)])
 
     flips = torch.sum(torch.logical_xor(pred_clean,pred_adv)).item()
     l_inf = torch.max(torch.abs(adv - clean)).item()
     l_2 = torch.sqrt(torch.sum((adv - clean) * (adv - clean))).item()
     print(flips, l_inf, l_2)
+
     # plt.bar([x for x in range(80)],pred1.cpu().numpy()[0,:], color='green')
     # plt.bar([x for x in range(80)],1-pred1.cpu().numpy()[0,:], color='red')
     # plt.show()

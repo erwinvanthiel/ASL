@@ -6,23 +6,25 @@ from src.models import create_model
 import argparse
 import matplotlib
 import torchvision.transforms as transforms
+from attacks import pgd, fgsm, mi_fgsm
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, unrestricted_mi_fgsm, get_weights_from_correlations
-from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
-from src.helper_functions.voc import Voc2007Classification
-from create_q2l_model import create_q2l_model
+import seaborn as sns
 from src.helper_functions.nuswide_asl import NusWideFiltered
+from create_q2l_model import create_q2l_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
-########################## ARGUMENTS #############################################
+torch.manual_seed(1)
+torch.cuda.manual_seed_all(1)
+np.random.seed(1)
 
 parser = argparse.ArgumentParser()
+########################## ARGUMENTS #############################################
 
 # MSCOCO 2014
 parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
@@ -40,7 +42,7 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 # parser.add_argument('--dataset_type', type=str, default='PASCAL_VOC2007')
 # parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
-# # # NUS_WIDE
+# NUS_WIDE
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
 # parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
 # parser.add_argument('--model_name', type=str, default='tresnet_l')
@@ -53,29 +55,27 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('-b', '--batch-size', default=1, type=int,
                     metavar='N', help='mini-batch size (default: 16)')
-parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 16)')
 args = parse_args(parser)
 
 ########################## SETUP THE MODELS AND LOAD THE DATA #####################
 
-# print('Model = ASL')
-# state = torch.load(args.model_path, map_location='cpu')
-# asl = create_model(args).cuda()
-# model_state = torch.load(args.model_path, map_location='cpu')
-# asl.load_state_dict(model_state["state_dict"])
-# asl.eval()
-# args.model_type = 'asl'
-# model = asl
+print('Model = ASL')
+state = torch.load(args.model_path, map_location='cpu')
+asl = create_model(args).cuda()
+model_state = torch.load(args.model_path, map_location='cpu')
+asl.load_state_dict(model_state["state_dict"])
+asl.eval()
+args.model_type = 'asl'
+model = asl
 
-print('Model = Q2L')
-q2l = create_q2l_model('config_coco.json')
-args.model_type = 'q2l'
-model = q2l
+# print('Model = Q2L')
+# q2l = create_q2l_model('config_coco.json')
+# args.model_type = 'q2l'
+# model = q2l
 
-
-
-# LOAD THE DATASET WITH DESIRED FILTER
+################ DATASET LOADING ############################
 
 if args.dataset_type == 'MSCOCO_2014':
 
@@ -89,7 +89,6 @@ if args.dataset_type == 'MSCOCO_2014':
                                     transforms.ToTensor(),
                                     # normalize, # no need, toTensor does normalization
                                 ]))
-
 elif args.dataset_type == 'PASCAL_VOC2007':
 
     dataset = Voc2007Classification('trainval',
@@ -105,66 +104,56 @@ elif args.dataset_type == 'NUS_WIDE':
                     transforms.ToTensor()])
     )
 
+
 # Pytorch Data loader
 data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
 
-flipup_correlations = np.load('experiment_results/flipup-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
-flipdown_correlations = np.load('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, 'MI-FGSM', args.model_type))[1]
+################ EXPERIMENT VARIABLES  ########################
 
-################ EXPERIMENT VARIABLES ########################
+NUMBER_OF_SAMPLES = 1024
 
-NUMBER_OF_SAMPLES = 1
-label_subset_lengths = [10]
-gamma_values = [1]
-tree_depths = [1,3,5]
-tree_widths = [1,3,5]
-correlation_results = [[[[[] for x in range(len(tree_depths))] for x in range(len(tree_depths))] for x in range(len(gamma_values))] for i in range(len(label_subset_lengths))]
-print(np.array(correlation_results).shape)
 #############################  EXPERIMENT LOOP #############################
 
+confidences = torch.zeros((NUMBER_OF_SAMPLES, args.batch_size, 80)) 
 sample_count = 0
 
-# DATASET LOOP
 for i, (tensor_batch, labels) in enumerate(data_loader):
     tensor_batch = tensor_batch.to(device)
+    target = torch.zeros((args.batch_size, args.num_classes))
+    target[:, 0:17] = 1
 
     if sample_count >= NUMBER_OF_SAMPLES:
         break
 
-    for number_of_attacked_labels_id, number_of_attacked_labels in enumerate(label_subset_lengths):
-        for gamma_id, gamma in enumerate(gamma_values):
-            for tree_depth_id, tree_depth in enumerate(tree_depths):
-                for tree_width_id, tree_width in enumerate(tree_widths):
+    # confidences_b4 = torch.sigmoid(model(tensor_batch))
+    adversarials = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=None), eps=0.005, device='cuda')
 
-                    # Do the inference
-                    with torch.no_grad():
-                        outputs = torch.sigmoid(model(tensor_batch))
-                        pred = (outputs > args.th).int()
-                        target = torch.clone(pred).detach()
-                        target = 1-target
-
-                    # perform the attack
-                    weights = get_weights_from_correlations(correlations, target, outputs, number_of_attacked_labels, gamma, tree_width, tree_depth)
-                    epsilon = unrestricted_mi_fgsm(model, tensor_batch.detach(), target, weights)
-                    correlation_results[number_of_attacked_labels_id][gamma_id][tree_depth_id][tree_width_id].extend(epsilon)
-                    # print(epsilon)
-            
+    with torch.no_grad():            
+        confidences[i] = (torch.sigmoid(model(adversarials)) > 0.5).int()
 
     sample_count += args.batch_size
-    print('batch number:',i)
+    print(i)
 
-print(correlation_results)
+print(torch.sum(confidences, dim=(0,1)))
 
-numpy_results = np.zeros((len(label_subset_lengths), len(gamma_values), len(tree_depths), len(tree_widths), 2))
 
-for number_of_attacked_labels_id, number_of_attacked_labels in enumerate(label_subset_lengths):
-        for gamma_id, gamma in enumerate(gamma_values):
-            for tree_depth_id, tree_depth in enumerate(tree_depths):
-                for tree_width_id, tree_width in enumerate(tree_widths):
-                    values = correlation_results[number_of_attacked_labels_id][gamma_id][tree_depth_id][tree_width_id]
-                    numpy_results[number_of_attacked_labels_id, gamma_id, tree_depth_id, tree_width_id, 0] = np.mean(values)
-                    numpy_results[number_of_attacked_labels_id, gamma_id, tree_depth_id, tree_width_id, 1] = np.std(values)
+# batch_size = 16
+# tensor([995., 774., 976., 432., 201., 805., 543., 861., 460., 781., 572., 647.,
+#         534., 809., 584., 410., 548.,  18.,   7.,   7.,   9.,   1.,  18.,  18.,
+#           4.,  16.,   3.,   7.,   6.,   9.,   1.,   2.,   9.,   5.,   4.,   8.,
+#          14.,   4.,  15.,   4.,   5.,   8.,   4.,   0.,   0.,   1.,   9.,   0.,
+#           5.,   2.,   4.,   3.,   3.,  16.,  15.,   7.,   2.,   5.,  11.,   7.,
+#           6.,   9.,   6.,   9.,   2.,   2.,   7.,   3.,   1.,   0.,   0.,   2.,
+#           0.,   3.,  15.,   2.,   2.,   6.,   0.,   0.])
 
-np.save('experiment_results/tree-depth-x-branches.npy', numpy_results)
+
+# batch_size = 1
+# tensor([995., 771., 979., 432., 190., 808., 539., 857., 445., 786., 565., 643.,
+#         526., 807., 565., 405., 544.,  18.,   7.,   7.,  10.,   1.,  18.,  17.,
+#           3.,  16.,   4.,   6.,   6.,   9.,   1.,   2.,   8.,   4.,   4.,   8.,
+#          14.,   4.,  15.,   2.,   5.,   8.,   4.,   0.,   0.,   1.,   9.,   0.,
+#           5.,   2.,   4.,   2.,   3.,  16.,  15.,   7.,   2.,   6.,  11.,   7.,
+#           6.,   9.,   6.,   9.,   2.,   2.,   7.,   3.,   1.,   0.,   0.,   2.,
+#           0.,   3.,  13.,   2.,   2.,   5.,   0.,   0.])
