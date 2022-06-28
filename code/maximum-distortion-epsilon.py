@@ -1,6 +1,5 @@
 import sys
 import _init_paths
-print(sys.path)
 import os
 import torch
 from asl.src.helper_functions.helper_functions import parse_args
@@ -54,7 +53,7 @@ parser = argparse.ArgumentParser()
 
 # # NUS_WIDE
 parser.add_argument('data', metavar='DIR', help='path to dataset', default='../../NUS_WIDE')
-parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
+parser.add_argument('--model_path', type=str, default='../../models/tresnetl-asl-nuswide-epoch80')
 parser.add_argument('--model_name', type=str, default='tresnet_l')
 parser.add_argument('--num-classes', default=81)
 parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
@@ -154,9 +153,9 @@ print(EPSILON_VALUES)
 flipped_labels = np.zeros((7, len(EPSILON_VALUES), NUMBER_OF_SAMPLES))
 outputs  = np.zeros((5, len(EPSILON_VALUES), NUMBER_OF_SAMPLES, args.batch_size, args.num_classes))
 targets = np.zeros((NUMBER_OF_SAMPLES, args.batch_size, args.num_classes))
-print('../experiment_results/flipup-correlations-{0}-{1}.npy'.format(args.dataset_type, args.model_type))
+
 # load, normalise the correlations and contruct inverted correlations
-flipup_correlations = np.load('../experiment_results/flipup-correlations-{0}-{1}.npy'.format(args.dataset_type, args.model_type))
+flipup_correlations = np.load('../experiment_results/flipup-correlations-cd-{0}-{1}.npy'.format(args.dataset_type, args.model_type))
 flipup_correlations = flipup_correlations - np.min(flipup_correlations)
 flipup_correlations = flipup_correlations / np.max(flipup_correlations)
 flipdown_correlations = 1 - flipup_correlations
@@ -204,7 +203,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
         adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
         adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
-        adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SmartLoss(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
+        adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
         adversarials3 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights0.to(device)), eps=epsilon, device="cuda").detach()
         adversarials4 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights1.to(device)), eps=epsilon, device="cuda").detach()
         adversarials5 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights2.to(device)), eps=epsilon, device="cuda").detach()

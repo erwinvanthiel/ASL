@@ -97,7 +97,7 @@ class MSELoss(nn.Module):
 class SLAM(nn.Module):
     
     def __init__(self, coefficients, epsilon, max_eps, num_classes, weight=None, size_average=True):
-        super(SmartLoss, self).__init__()
+        super(SLAM, self).__init__()
         
         if epsilon >= max_eps:
             self.p = 1

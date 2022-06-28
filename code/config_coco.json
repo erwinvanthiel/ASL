@@ -27,5 +27,5 @@
   "ema_decay": 0.9997, 
   "optim": "Adam_twd",
   "keep_other_self_attn_dec": "False",
-  "resume":"models/q2l-r101-448-coco.pkl"
+  "resume":"../../models/q2l-r101-448-coco.pkl"
 }
