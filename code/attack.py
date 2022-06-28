@@ -18,11 +18,13 @@ from sklearn.metrics import auc
 from asl.src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from asl.src.helper_functions.voc import Voc2007Classification
 from create_q2l_model import create_q2l_model
+from create_asl_model import create_asl_model
 from asl.src.helper_functions.nuswide_asl import NusWideFiltered
 import numpy.polynomial.polynomial as poly
 import numpy.ma as ma
 import matplotlib as mpl
 import numpy.polynomial.polynomial as poly
+import types
 mpl.style.use('classic')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
@@ -35,29 +37,10 @@ np.random.seed(11)
 
 parser = argparse.ArgumentParser()
 
-# MSCOCO 2014
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
-# parser.add_argument('--model_name', type=str, default='tresnet_l')
-# parser.add_argument('--num-classes', default=80)
-# parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+parser.add_argument('classifier', type=str, default='asl_coco')
+parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
+parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
 
-# PASCAL VOC2007
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
-# parser.add_argument('--model-path', default='./models/tresnetxl-asl-voc-epoch80', type=str)
-# parser.add_argument('--model_name', type=str, default='tresnet_xl')
-# parser.add_argument('--num-classes', default=20)
-# parser.add_argument('--dataset_type', type=str, default='VOC2007')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
-
-# # NUS_WIDE
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='../../NUS_WIDE')
-parser.add_argument('--model_path', type=str, default='../../models/tresnetl-asl-nuswide-epoch80')
-parser.add_argument('--model_name', type=str, default='tresnet_l')
-parser.add_argument('--num-classes', default=81)
-parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
-parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 
 # IMPORTANT PARAMETERS!
@@ -69,41 +52,43 @@ parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
 args = parse_args(parser)
 
 
-
-########################## FUNCTIONS #####################
-
-def plot_confidences(output, output_after):
-    output_after = torch.sigmoid(model(adversarials1))
-    y1 = output_after.detach().cpu()[0]
-    y2 = output.detach().cpu()[0]
-    mask1 = ma.where(y1>=y2)
-    mask2 = ma.where(y2>=y1)
-    plt.bar(np.array([x for x in range(80)])[mask1], y1[mask1], color='red')
-    plt.bar(np.array([x for x in range(80)]), y2, color='blue', label='pre-attack')
-    plt.bar(np.array([x for x in range(80)])[mask2], y1[mask2], color='red', label='post-attack')
-    plt.axhline(y = 0.5, color = 'black', linestyle = '-', label='treshold')
-    plt.legend()
-    plt.show()
-
-########################## SETUP THE MODELS AND LOAD THE DATA #####################
-
-# print('Model = ASL')
-# state = torch.load(args.model_path, map_location='cpu')
-# asl = create_model(args).cuda()
-# model_state = torch.load(args.model_path, map_location='cpu')
-# asl.load_state_dict(model_state["state_dict"])
-# asl.eval()
-# args.model_type = 'asl'
-# model = asl
-
-print('Model = Q2L')
-q2l = create_q2l_model('config_nuswide.json')
-args.model_type = 'q2l'
-model = q2l
+########################## SETUP THE MODELS  #####################
 
 
+if args.classifier == 'asl_coco'
 
-# LOAD THE DATASET WITH DESIRED FILTER
+    asl, config = create_asl_model('asl_coco.json')
+    asl.eval()
+    args.model_type = 'asl'
+    model = asl
+
+elif args.classifier == 'asl_nuswide':
+    asl, config = create_asl_model('asl_nuswide.json')
+    asl.eval()
+    args.model_type = 'asl'
+    model = asl
+
+elif args.classifier == 'asl_voc':
+    asl, config = create_asl_model('asl_voc.json')
+    asl.eval()
+    args.model_type = 'asl'
+    model = asl
+
+elif args.classifier == 'q2l_coco':
+    q2l = create_q2l_model('q2l_coco.json')
+    args.model_type = 'q2l'
+    model = q2l
+
+elif args.classifier == 'q2l_nuswide':
+    q2l = create_q2l_model('q2l_nuswide.json')
+    args.model_type = 'q2l'
+    model = q2l
+
+args_dict = {**vars(args), **vars(config)}
+args = types.SimpleNamespace(**args_dict)
+
+
+########################## LOAD THE DATASET  #####################
 
 if args.dataset_type == 'MSCOCO_2014':
 
@@ -137,6 +122,22 @@ elif args.dataset_type == 'NUS_WIDE':
 data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
+
+
+########################## FUNCTIONS #####################
+
+def plot_confidences(output, output_after):
+    output_after = torch.sigmoid(model(adversarials1))
+    y1 = output_after.detach().cpu()[0]
+    y2 = output.detach().cpu()[0]
+    mask1 = ma.where(y1>=y2)
+    mask2 = ma.where(y2>=y1)
+    plt.bar(np.array([x for x in range(80)])[mask1], y1[mask1], color='red')
+    plt.bar(np.array([x for x in range(80)]), y2, color='blue', label='pre-attack')
+    plt.bar(np.array([x for x in range(80)])[mask2], y1[mask2], color='red', label='post-attack')
+    plt.axhline(y = 0.5, color = 'black', linestyle = '-', label='treshold')
+    plt.legend()
+    plt.show()
 
 ################ LOAD PROFILE ################################
 
@@ -179,6 +180,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
         target = 1 - target
         targets[i, :, :] = target.cpu()
 
+    # BUILD ICM
     negative_indices = np.where(target.cpu() == 0)[1]
     positive_indices = np.where(target.cpu() == 1)[1]
     instance_correlation_matrix = np.zeros(flipup_correlations.shape)
@@ -187,7 +189,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
     normalized_confidences = np.abs(output.cpu().numpy()) / np.max(np.abs(output.cpu().numpy()))
 
-    # process a batch and add the flipped labels for every number of targets
+    # ATTACK LOOP
     for epsilon_index, epsilon in enumerate(EPSILON_VALUES):
 
         estimate = int(np.maximum(0, np.minimum(args.num_classes, poly.polyval(epsilon, coefs))))
@@ -200,7 +202,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
         weights2 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 0.5, 4, 4)
         weights3 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 1, 4, 4)
 
-
+        # PERFORM THE ATTACKS
         adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
         adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
         adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
@@ -256,6 +258,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     sample_count += args.batch_size
     print('batch number:',i)
 
+# SAVE THE RESULTS
 np.save('../experiment_results/flips-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
 np.save('../experiment_results/maxdist-outputs-{0}-{1}'.format(args.model_type, args.dataset_type), outputs)
 np.save('../experiment_results/maxdist-targets-{0}-{1}'.format(args.model_type, args.dataset_type), targets)

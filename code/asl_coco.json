@@ -1,0 +1,7 @@
+{
+  "image_size": 448,
+  "num_classes": 80,
+  "model_path": "../../models/tresnetl-asl-mscoco-epoch80",
+  "model_name":"tresnet_l",
+  "do_bottleneck_head":"False"
+}

@@ -52,5 +52,5 @@ def create_q2l_model(config):
 	state_dict = clean_state_dict(checkpoint['state_dict'])
 	model.load_state_dict(state_dict, strict=True)
 
-	return model
+	return model, args
 

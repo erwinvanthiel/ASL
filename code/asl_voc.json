@@ -1,0 +1,7 @@
+{
+  "image_size": 448,
+  "num_classes": 20,
+  "model_path": "../../models/tresnetxl-asl-voc-epoch80",
+  "model_name":"tresnet_xl",
+  "do_bottleneck_head":"False"
+}

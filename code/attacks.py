@@ -186,7 +186,7 @@ class TreeOfLists():
         total_list = self.baselist.copy() + self.added_labels.copy()
         return total_list
 
-
+# Classifier Landscape Attentive Subset Selection (CLASS)
 def generate_subset(outputs, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, branch_depth):
 
     
