@@ -4,15 +4,12 @@
 import sys
 sys.path.append('../')
 from src.helper_functions.helper_functions import parse_args
-from src.loss_functions.losses import AsymmetricLoss, AsymmetricLossOptimized
-from src.models import create_model
 import matplotlib
 import torchvision.transforms as transforms
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from src.helper_functions.voc import Voc2007Classification
 import argparse
 import torch
 import os
@@ -21,10 +18,8 @@ import logging
 from tqdm import tqdm
 from attack_model import AttackModel
 from create_q2l_model import create_q2l_model
-from src.models import create_model
-from src.helper_functions.helper_functions import CocoDetectionFiltered
 from src.helper_functions.helper_functions import parse_args
-from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
+from src.helper_functions.helper_functions import CocoDetectionFiltered
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
@@ -37,11 +32,11 @@ parser.add_argument('--image_size', default=448, type=int,
                     metavar='N', help='image size (default: 224)')
 parser.add_argument('--batch_size', default=1, type=int,
                     metavar='N', help='batch size (default: 32)')
-parser.add_argument('--adv_batch_size', default=18, type=int,
+parser.add_argument('--adv_batch_size', default=1, type=int,
                     metavar='N', help='batch size ml_cw, ml_rank1, ml_rank2 18, ml_lp 10, ml_deepfool is 10')
 parser.add_argument('--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--adv_method', default='ml_cw', type=str, metavar='N',
+parser.add_argument('--adv_method', default='ml_deepfool', type=str, metavar='N',
                     help='attack method: ml_cw, ml_rank1, ml_rank2, ml_deepfool, ml_lp:97')
 parser.add_argument('--adv_file_path', default='../data/voc2007/files/VOC2007/classification_mlgcn_adv.csv', type=str, metavar='N',
                     help='all image names and their labels ready to attack')
@@ -50,7 +45,7 @@ parser.add_argument('--adv_save_x', default='../adv_save/mlgcn/voc2007/', type=s
 parser.add_argument('--adv_begin_step', default=0, type=int, metavar='N',
                     help='which step to start attacking according to the batch size')
 parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=5, type=int,
+parser.add_argument('-b', '--batch-size', default=1, type=int,
                     metavar='N', help='mini-batch size (default: 16)')
 
 
@@ -180,10 +175,10 @@ def main():
     use_gpu = torch.cuda.is_available()
 
     # set seed
-    torch.manual_seed(15)
+    torch.manual_seed(1)
     if use_gpu:
-        torch.cuda.manual_seed_all(15)
-    np.random.seed(15)
+        torch.cuda.manual_seed_all(1)
+    np.random.seed(1)
 
     # define dataset
     num_classes = 80

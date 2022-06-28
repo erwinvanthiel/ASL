@@ -14,6 +14,8 @@ class MLLP(object):
         self.model = model
 
     def generate_np(self, x, A_m, **kwargs):
+
+        print(x.shape)
         logging.info('prepare attack')
         self.clip_max = kwargs['clip_max']
         self.clip_min = kwargs['clip_min']
@@ -57,6 +59,7 @@ class MLLP(object):
 
         error_idx = []
         while iteration < max_iter:
+            print('iteration', iteration)
             if len(error_idx) == num_instaces:
                 break
             for i in range(num_instaces):
@@ -95,9 +98,15 @@ class MLLP(object):
                 item.append(threshold_value[i])
                 item.append(np.expand_dims(r_change[i], 0))
                 item_list.append(item)
-            with Pool(processes=num_instaces) as pool:
-                result = pool.starmap(mosek_inner_point_solver, item_list)
 
+            # with Pool(processes=num_instaces) as pool:
+            #     result = pool.starmap(mosek_inner_point_solver, item_list)
+
+            result = []
+            print("AAAAAAAAAAAAAAAAAAAAHHHHHHHHHHHHHHHH")
+            for item_id in range(len(item_list)):
+                result.append(mosek_inner_point_solver(item_list[item_id][0], item_list[item_id][1], item_list[item_id][2], item_list[item_id][3], item_list[item_id][4]))
+            print("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
             for i in range(num_instaces):
                 if i in error_idx:
                     result[i] = np.zeros((1, num_features))
@@ -224,7 +233,7 @@ def mosek_inner_point_solver(A, output, y_target, threshold_value, r_change):
         1 - np.ones((num_labels)) * threshold_value))
     delta_loss = loss_target - loss_current
     r_change = r_change.reshape(num_instances, d)
-
+    print("1")
     tasks = []
     with mosek.Env() as env:
         for i in range(num_instances):
@@ -320,7 +329,9 @@ def mosek_inner_point_solver(A, output, y_target, threshold_value, r_change):
         # if the solution fails, then result is full zero
         result = np.zeros((num_instances, d))
         for i in range(num_instances):
+            print("2")
             tasks[i].optimize()
+            print("3")
             # tasks[i].solutionsummary(mosek.streamtype.msg)
             # Get status information about the solution
             solsta = tasks[i].getsolsta(mosek.soltype.itr)

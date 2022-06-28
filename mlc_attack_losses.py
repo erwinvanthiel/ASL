@@ -96,15 +96,14 @@ class MSELoss(nn.Module):
 
 class SmartLoss(nn.Module):
     
-    def __init__(self, coefficients, epsilon, classifier_flip_distance, num_classes, weight=None, size_average=True):
+    def __init__(self, coefficients, epsilon, max_eps, num_classes, weight=None, size_average=True):
         super(SmartLoss, self).__init__()
         
-        if epsilon >= classifier_flip_distance:
+        if epsilon >= max_eps:
             self.p = 1
         else:
-            estimate = poly.polyval(epsilon, coefficients)
-            self.p = np.minimum(1,(estimate / 80))
-            print(epsilon, estimate, self.p)
+            estimate = np.maximum(0, poly.polyval(epsilon, coefficients))
+            self.p = np.minimum(1,(estimate / num_classes))
 
         self.weight = weight
 

@@ -10,13 +10,14 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, get_top_n_weights, l2_mi_fgm
+from attacks import pgd, fgsm, mi_fgsm, unrestricted_mi_fgsm, get_weights_from_correlations, generate_subset, objective_function
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from src.helper_functions.voc import Voc2007Classification
 from create_q2l_model import create_q2l_model
 from src.helper_functions.nuswide_asl import NusWideFiltered
+import seaborn as sns
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 
@@ -44,7 +45,7 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 # parser.add_argument('--dataset_type', type=str, default='PASCAL_VOC2007')
 # parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
-# # NUS_WIDE
+# # # NUS_WIDE
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
 # parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
 # parser.add_argument('--model_name', type=str, default='tresnet_l')
@@ -109,7 +110,7 @@ elif args.dataset_type == 'NUS_WIDE':
                     transforms.ToTensor()])
     )
 
-# Pytorch Data loader
+# Pytorch Data loader 
 data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
@@ -118,12 +119,17 @@ data_loader = torch.utils.data.DataLoader(
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
-epsilons = np.load('experiment_results/{0}-{1}-l2-profile-epsilons.npy'.format(args.model_type, args.dataset_type))
-min_eps = 0.1 * epsilons[len(epsilons) - 1]
-EPSILON_VALUES = [min_eps, 3*min_eps, 6*min_eps]
-amount_of_targets = [5,10,15,20,25,30,35,40,50,60,70,80]
-print(EPSILON_VALUES)
-flipped_labels = np.zeros((2, len(EPSILON_VALUES), len(amount_of_targets), NUMBER_OF_SAMPLES))
+numbers_of_levels = [2] #[x+1 for x in range(10)]
+numbers_of_branches = [3]#[x+1 for x in range(10)]
+gamma_values = [0.5]
+numbers_of_labels = [10]
+objective_values = np.zeros((len(gamma_values), len(numbers_of_labels), len(numbers_of_levels), len(numbers_of_branches), NUMBER_OF_SAMPLES))
+
+# load, normalise the correlations and contruct inverted correations
+flipup_correlations = np.load('experiment_results/flipup-correlations-cd-{0}-{1}.npy'.format(args.dataset_type, args.model_type))
+flipup_correlations = flipup_correlations - np.min(flipup_correlations)
+flipup_correlations = flipup_correlations / np.max(flipup_correlations)
+flipdown_correlations = 1 - flipup_correlations
 
 #############################  EXPERIMENT LOOP #############################
 
@@ -136,33 +142,39 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     if sample_count >= NUMBER_OF_SAMPLES:
         break
 
+    sample_count += 1
+
     # Do the inference
     with torch.no_grad():
-        outputs = torch.sigmoid(model(tensor_batch))
-        pred = (outputs > args.th).int()
+        output = torch.sigmoid(model(tensor_batch))
+        pred = (output > args.th).int()
         target = torch.clone(pred).detach()
-        target = 1 - target
+        target = (1 - target).cpu().numpy()
+        output = output.cpu().numpy()
+    
+    negative_indices = np.where(target == 0)[1]
+    positive_indices = np.where(target == 1)[1]
 
-    for epsilon_index, epsilon in enumerate(EPSILON_VALUES):
+    instance_correlation_matrix = np.zeros(flipup_correlations.shape)
+    instance_correlation_matrix[positive_indices] = flipup_correlations[positive_indices]
+    instance_correlation_matrix[negative_indices] = flipdown_correlations[negative_indices]
+    
 
-        # process a batch and add the flipped labels for every number of targets
-        for amount_id, number_of_targets in enumerate(amount_of_targets):
-            weights = get_top_n_weights(outputs, number_of_targets, random=False).to(device)
-            adversarials = l2_mi_fgm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=weights), eps=EPSILON_VALUES[epsilon_index], device="cuda").detach()
-            # adversarials_r = mi_fgsm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=get_top_n_weights(outputs, number_of_targets, target, random=True).to(device)), eps=EPSILON_VALUES[epsilon_index], device="cuda")
-        
-            with torch.no_grad():
-                # Another inference after the attack
-                pred_after_attack = (torch.sigmoid(model(adversarials)) > args.th).int()
-                # pred_after_attack_r = (torch.sigmoid(model(adversarials_r)) > args.th).int()
+    normalized_confidences = np.abs(output) / np.max(np.abs(output))
+
+    for gamma_id, gamma in enumerate(gamma_values):
+
+        for number_of_labels_id, number_of_labels in enumerate(numbers_of_labels):
+            for numbers_of_levels_id, number_of_levels in enumerate(numbers_of_levels):
+                for number_of_branches_id, number_of_branches in enumerate(numbers_of_branches):
+
+                    if number_of_branches ** number_of_levels > 10000:
+                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = 0
+                    else:
+                        subset = generate_subset(output, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, number_of_levels)
+                        value = objective_function(subset, instance_correlation_matrix, normalized_confidences, gamma)
+                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = value
                 
-                flipped_labels[0, epsilon_index, amount_id, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack), dim=1).cpu().numpy()
-                # flipped_labels[1, epsilon_index, amount_id, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack_r), dim=1).cpu().numpy()
-            
-    sample_count += args.batch_size
-    print('batch number:',i)
+    print(i)
 
-print(flipped_labels)
-np.save('experiment_results/l2-targets-vs-flips-{0}-{1}.npy'.format(args.model_type, args.dataset_type),flipped_labels)
-
-
+np.save('experiment_results/tree-depth-x-branches-{0}-{1}.npy'.format(args.model_type, args.dataset_type), objective_values)

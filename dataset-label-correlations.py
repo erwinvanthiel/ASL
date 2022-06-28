@@ -7,7 +7,6 @@ import argparse
 import itertools
 import matplotlib
 import torchvision.transforms as transforms
-from pgd import create_targeted_adversarial_examples
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -25,12 +24,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
 parser = argparse.ArgumentParser(description='')
 
 # MSCOCO 2014
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('--model_path', type=str, default='./tresnetm-asl-coco-epoch80')
-parser.add_argument('--model_name', type=str, default='tresnet_l')
-parser.add_argument('--num-classes', default=80)
-parser.add_argument('--dataset_type', type=str, default='MSCOCO 2014')
-parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+# parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
+# parser.add_argument('--model_path', type=str, default='./tresnetm-asl-coco-epoch80')
+# parser.add_argument('--model_name', type=str, default='tresnet_l')
+# parser.add_argument('--num-classes', default=80)
+# parser.add_argument('--dataset_type', type=str, default='MSCOCO 2014')
+# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # PASCAL VOC2007
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
@@ -41,12 +40,12 @@ parser.add_argument('--image-size', default=448, type=int, metavar='N', help='in
 # parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # NUS_WIDE
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='..NUS_WIDE')
-# parser.add_argument('--model_path', type=str, default='./NUS_WIDE_TRresNet_L_448_65.2.pth')
-# parser.add_argument('--model_name', type=str, default='tresnet_l')
-# parser.add_argument('--num-classes', default=81)
-# parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+parser.add_argument('data', metavar='DIR', help='path to dataset', default='..NUS_WIDE')
+parser.add_argument('--model_path', type=str, default='./NUS_WIDE_TRresNet_L_448_65.2.pth')
+parser.add_argument('--model_name', type=str, default='tresnet_l')
+parser.add_argument('--num-classes', default=81)
+parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
+parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 #IMPORTANT PARAMETER!
 parser.add_argument('--th', type=float, default=0.5)
