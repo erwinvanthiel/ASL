@@ -17,7 +17,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 import _init_paths
-from dataset.get_dataset import get_datasets
+# from dataset.get_dataset import get_datasets
 from collections import namedtuple
 
 from utils.logger import setup_logger

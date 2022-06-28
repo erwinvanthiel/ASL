@@ -100,6 +100,49 @@ def mi_fgsm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, de
             
     return images
 
+# Momentum Induced Fast Gradient Sign Method 
+def l2_mi_fgm(model, images, target, loss_function=torch.nn.BCELoss(), eps=0.3, device='cuda'):
+    
+    # put tensors on the GPU
+    images = images.to(device)
+    starting_points = images.clone()
+    target = target.to(device).float()
+    model = model.to(device)
+
+    L = loss_function
+    inner_cube_width = 2 * eps
+    hyper_sphere_radius = (inner_cube_width * 187.76)
+    hyper_sphere_radius = eps
+
+    alpha = float(448 / 2560)
+    iters = int(hyper_sphere_radius / alpha)
+    mu = 1.0
+    g = 0
+    
+    for i in range(iters):    
+        images.requires_grad = True
+
+        outputs = sigmoid(model(images)).to(device)
+
+        model.zero_grad()
+        cost = L(outputs, target.detach())
+        cost.backward()
+
+        # normalize the gradient
+        new_g = images.grad / torch.sqrt(torch.sum(images.grad ** 2))
+
+        # update the gradient
+        g = mu * g + new_g
+
+        # perform the step, and detach because otherwise gradients get messed up.
+        images = (images - alpha * g).detach()
+    
+
+    # clamp the output
+    images = torch.clamp(images, min=0, max=1).detach()
+            
+    return images    
+
 
 def get_top_n_weights(outputs, number_of_attacked_labels, random=False):
     # rankings = (1-target_vector) * outputs + target_vector * (1-outputs)
@@ -169,7 +212,7 @@ def generate_subset(outputs, instance_correlation_matrix, number_of_labels, gamm
         for d in range(depth):
 
             for parent in parents:
-
+                # print(parent.get_list())
                 current_label_set = parent.get_list()
 
                 ## COMPUTE THE CURRENT LABEL RANKINGS FOR THIS PARENT
@@ -188,7 +231,6 @@ def generate_subset(outputs, instance_correlation_matrix, number_of_labels, gamm
                 for b in range(min(number_of_branches, len(updated_ranking))):
                     added_label = updated_ranking[len(updated_ranking)-1-b]
                     parent.add_child(added_label)
-
                 children.extend(parent.children)
             # print([c.get_list() for c in children])
             parents = children
@@ -199,6 +241,7 @@ def generate_subset(outputs, instance_correlation_matrix, number_of_labels, gamm
         best_option = None
         for p in parents:
             obj_value = objective_function(p.get_list(), instance_correlation_matrix, normalized_confidences, gamma)
+            # print(p.get_list(), obj_value)
             if obj_value > max_obj_value:
                 max_obj_value = obj_value
                 best_option = p

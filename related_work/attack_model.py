@@ -43,7 +43,7 @@ class AttackModel():
                       'max_iterations': 1000,
                       'learning_rate': 0.01,
                       'batch_size': self.adv_batch_size,
-                      'initial_const': 0.05,
+                      'initial_const': 1e5,
                       'clip_min': clip_min,
                       'clip_max': clip_max}
             self.ml_cw(params)
@@ -82,11 +82,9 @@ class AttackModel():
     def mla_lp(self, params):
         exec_times = []
 
-        
-        print(params)
         nsamples = 100
         for i, (x, target) in enumerate(self.data_loader):
-
+            print(i)
             # Check sample limit
             if i >= nsamples:
                 break
@@ -98,7 +96,6 @@ class AttackModel():
             
             output = 2 * (torch.sigmoid(self.model(x.cuda())) > 0.5).int().detach().cpu().numpy() - 1
             t =  -output.copy()
-            print(np.where(output > 0))
          
             params['y_target'] = t
 
@@ -109,7 +106,6 @@ class AttackModel():
             A = A_pos + A_neg
 
             np.save(self.adv_save_x + 'mla_lp_' + 'clean{0}'.format(i), x)
-            print(A)
             adv = self.attack_model.generate_np(x.cpu().numpy(), A, **params)
             np.save(self.adv_save_x + 'mla_lp_' + 'adv{0}'.format(i), adv)
 
@@ -139,12 +135,12 @@ class AttackModel():
             output = 2 * (torch.sigmoid(self.model(x.cuda())) > 0.5).int().detach().cpu().numpy() - 1
             params['y_target'] = -output
 
-            np.save(self.adv_save_x + 'ml_cw_lambda_fixed' + 'clean{0}'.format(i), x)
+            np.save(self.adv_save_x + 'ml_cw_' + 'clean{0}'.format(i), x)
 
             adv = self.attack_model.generate_np(x.cpu().numpy(), **params)            
 
             # Save the adversarial
-            np.save(self.adv_save_x + 'ml_cw_lambda_fixed' + 'adv{0}'.format(i), adv)
+            np.save(self.adv_save_x + 'ml_cw_' + 'adv{0}'.format(i), adv)
 
             # TIME
             end_time = datetime.timestamp(datetime.now())
@@ -256,7 +252,7 @@ class AttackModel():
             end_time = datetime.timestamp(datetime.now())
             time_diff = end_time - start_time
             print(time_diff)
-            exec_times.append(time_diff)
+            # exec_times.append(time_diff)
 
 
 def new_folder(file_path):

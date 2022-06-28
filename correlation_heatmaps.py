@@ -6,8 +6,8 @@ import seaborn as sns
 mpl.style.use('classic')
 
 
-dataset_type = 'MSCOCO_2014'
-model_type = 'q2l'
+dataset_type = 'NUS_WIDE'
+model_type = 'asl'
 
 correlations = np.load('experiment_results/flipup-correlations-cd-{0}-{1}.npy'.format(dataset_type, model_type))
 sns.heatmap(correlations)

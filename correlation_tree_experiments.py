@@ -119,10 +119,10 @@ data_loader = torch.utils.data.DataLoader(
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
-numbers_of_levels = [x+1 for x in range(10)]
-numbers_of_branches = [x+1 for x in range(10)]
-gamma_values = [0,0.5,1]
-numbers_of_labels = [10,20]
+numbers_of_levels = [2] #[x+1 for x in range(10)]
+numbers_of_branches = [3]#[x+1 for x in range(10)]
+gamma_values = [0.5]
+numbers_of_labels = [10]
 objective_values = np.zeros((len(gamma_values), len(numbers_of_labels), len(numbers_of_levels), len(numbers_of_branches), NUMBER_OF_SAMPLES))
 
 # load, normalise the correlations and contruct inverted correations
@@ -172,7 +172,8 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
                         objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = 0
                     else:
                         subset = generate_subset(output, instance_correlation_matrix, number_of_labels, gamma, number_of_branches, number_of_levels)
-                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = objective_function(subset, instance_correlation_matrix, normalized_confidences, gamma)
+                        value = objective_function(subset, instance_correlation_matrix, normalized_confidences, gamma)
+                        objective_values[gamma_id, number_of_labels_id, numbers_of_levels_id, number_of_branches_id, i] = value
                 
     print(i)
 

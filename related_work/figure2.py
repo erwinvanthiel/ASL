@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm
+from attacks import pgd, fgsm, mi_fgsm, l2_mi_fgm
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss, SmartLoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
@@ -78,12 +78,14 @@ model = q2l
 
 ################ LOAD PROFILE ################################
 
-coefs = np.load('../experiment_results/{0}-{1}-profile.npy'.format(args.model_type, args.dataset_type))
-epsilons = np.load('../experiment_results/{0}-{1}-profile-epsilons.npy'.format(args.model_type, args.dataset_type))
+coefs = np.load('../experiment_results/{0}-{1}-l2-profile.npy'.format(args.model_type, args.dataset_type))
+epsilons = np.load('../experiment_results/{0}-{1}-l2-profile-epsilons.npy'.format(args.model_type, args.dataset_type))
 max_eps = np.max(epsilons)
 min_eps = np.min(max_eps) / 10
-EPSILON_VALUES = [0.5*min_eps, min_eps, 2*min_eps, 4*min_eps, 6*min_eps, 8*min_eps, 10*min_eps]
+# EPSILON_VALUES = [0.5*min_eps, min_eps, 2*min_eps, 4*min_eps, 6*min_eps, 8*min_eps, 10*min_eps]
+EPSILON_VALUES = [9]
 print(EPSILON_VALUES)
+
 ##############################################################
 
 for i in range(1):
@@ -98,7 +100,7 @@ for i in range(1):
         # attack with mifgsm and get results
         target = 1 - pred
 
-        mi_fgsm_adv = mi_fgsm(model, clean.detach(), target, loss_function=SmartLoss(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
+        mi_fgsm_adv = l2_mi_fgm(model, clean.detach(), target, loss_function=SmartLoss(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
         pred_mi_fgsm = (torch.sigmoid(model(mi_fgsm_adv.cuda())) > 0.5).int()
         flips = torch.sum(torch.logical_xor(pred, pred_mi_fgsm)).item()
         print(flips)

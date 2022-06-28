@@ -103,7 +103,7 @@ class SmartLoss(nn.Module):
             self.p = 1
         else:
             estimate = np.maximum(0, poly.polyval(epsilon, coefficients))
-            self.p = np.minimum(1,(estimate / 80))
+            self.p = np.minimum(1,(estimate / num_classes))
 
         self.weight = weight
 

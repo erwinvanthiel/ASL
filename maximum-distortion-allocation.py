@@ -10,7 +10,7 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
-from attacks import pgd, fgsm, mi_fgsm, get_top_n_weights
+from attacks import pgd, fgsm, mi_fgsm, get_top_n_weights, l2_mi_fgm
 from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss
 from sklearn.metrics import auc
 from src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
@@ -29,12 +29,12 @@ np.random.seed(1)
 parser = argparse.ArgumentParser()
 
 # MSCOCO 2014
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
-# parser.add_argument('--model_name', type=str, default='tresnet_l')
-# parser.add_argument('--num-classes', default=80)
-# parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
+parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
+parser.add_argument('--model_name', type=str, default='tresnet_l')
+parser.add_argument('--num-classes', default=80)
+parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
+parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # PASCAL VOC2007
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
@@ -45,12 +45,12 @@ parser = argparse.ArgumentParser()
 # parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # # NUS_WIDE
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
-parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
-parser.add_argument('--model_name', type=str, default='tresnet_l')
-parser.add_argument('--num-classes', default=81)
-parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
-parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+# parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
+# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-nuswide-epoch80')
+# parser.add_argument('--model_name', type=str, default='tresnet_l')
+# parser.add_argument('--num-classes', default=81)
+# parser.add_argument('--dataset_type', type=str, default='NUS_WIDE')
+# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 
 # IMPORTANT PARAMETERS!
@@ -73,7 +73,7 @@ args = parse_args(parser)
 # model = asl
 
 print('Model = Q2L')
-q2l = create_q2l_model('config_nuswide.json')
+q2l = create_q2l_model('config_coco.json')
 args.model_type = 'q2l'
 model = q2l
 
@@ -118,9 +118,11 @@ data_loader = torch.utils.data.DataLoader(
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
-min_eps = 0.1 / 15
+epsilons = np.load('experiment_results/{0}-{1}-l2-profile-epsilons.npy'.format(args.model_type, args.dataset_type))
+min_eps = 0.1 * epsilons[len(epsilons) - 1]
 EPSILON_VALUES = [min_eps, 3*min_eps, 6*min_eps]
-amount_of_targets = [0,5,10,15,20,25,30,35,40,50,60,70,80]
+amount_of_targets = [5,10,15,20,25,30,35,40,50,60,70,80]
+print(EPSILON_VALUES)
 flipped_labels = np.zeros((2, len(EPSILON_VALUES), len(amount_of_targets), NUMBER_OF_SAMPLES))
 
 #############################  EXPERIMENT LOOP #############################
@@ -146,8 +148,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
         # process a batch and add the flipped labels for every number of targets
         for amount_id, number_of_targets in enumerate(amount_of_targets):
             weights = get_top_n_weights(outputs, number_of_targets, random=False).to(device)
-
-            adversarials = mi_fgsm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=weights), eps=EPSILON_VALUES[epsilon_index], device="cuda").detach()
+            adversarials = l2_mi_fgm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=weights), eps=EPSILON_VALUES[epsilon_index], device="cuda").detach()
             # adversarials_r = mi_fgsm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=get_top_n_weights(outputs, number_of_targets, target, random=True).to(device)), eps=EPSILON_VALUES[epsilon_index], device="cuda")
         
             with torch.no_grad():
@@ -162,6 +163,6 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     print('batch number:',i)
 
 print(flipped_labels)
-np.save('experiment_results/targets-vs-flips-{0}-{1}.npy'.format(args.model_type, args.dataset_type),flipped_labels)
+np.save('experiment_results/l2-targets-vs-flips-{0}-{1}.npy'.format(args.model_type, args.dataset_type),flipped_labels)
 
 

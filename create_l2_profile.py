@@ -33,20 +33,21 @@ np.random.seed(1)
 parser = argparse.ArgumentParser()
 
 # MSCOCO 2014
-# parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-# parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
-# parser.add_argument('--model_name', type=str, default='tresnet_l')
-# parser.add_argument('--num-classes', default=80)
-# parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
+parser.add_argument('--model_path', type=str, default='./models/tresnetl-asl-mscoco-epoch80')
+parser.add_argument('--model_name', type=str, default='tresnet_l')
+parser.add_argument('--num-classes', default=80)
+parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
+parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # PASCAL VOC2007
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
-parser.add_argument('--model-path', default='./models/tresnetxl-asl-voc-epoch80', type=str)
-parser.add_argument('--model_name', type=str, default='tresnet_xl')
-parser.add_argument('--num-classes', default=20)
-parser.add_argument('--dataset_type', type=str, default='VOC2007')
-parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
+# parser.add_argument('data', metavar='DIR', help='path to dataset', default='../VOC2007')
+# parser.add_argument('attack_type', type=str, default='PGD')
+# parser.add_argument('--model-path', default='./models/tresnetxl-asl-voc-epoch80', type=str)
+# parser.add_argument('--model_name', type=str, default='tresnet_xl')
+# parser.add_argument('--num-classes', default=20)
+# parser.add_argument('--dataset_type', type=str, default='PASCAL_VOC2007')
+# parser.add_argument('--image-size', default=448, type=int, metavar='N', help='input image size (default: 448)')
 
 # # NUS_WIDE
 # parser.add_argument('data', metavar='DIR', help='path to dataset', default='../NUS_WIDE')
@@ -79,10 +80,13 @@ args.model_type = 'asl'
 model = asl
 
 # print('Model = Q2L')
-# q2l = create_q2l_model('config_nuswide.json')
+# q2l = create_q2l_model('config_coco.json')
 # args.model_type = 'q2l'
 # model = q2l
 
+model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+params = sum([np.prod(p.size()) for p in model_parameters])
+print(193579088 / 53750896)
 
 
 # LOAD THE DATASET WITH DESIRED FILTER
@@ -100,7 +104,7 @@ if args.dataset_type == 'MSCOCO_2014':
                                     # normalize, # no need, toTensor does normalization
                                 ]))
 
-elif args.dataset_type == 'VOC2007':
+elif args.dataset_type == 'PASCAL_VOC2007':
 
     dataset = Voc2007Classification('trainval',
                                     transform=transforms.Compose([
@@ -123,7 +127,7 @@ data_loader = torch.utils.data.DataLoader(
 
 ################ EXPERIMENT VARIABLES ########################
 
-alpha = (1/256)/10 # one tenth of 1 discrete pixel value step
+alpha = float(448 / 2560)
 NUMBER_OF_SAMPLES = 100
 sample_count = 0
 samples = torch.zeros((NUMBER_OF_SAMPLES, 3, args.image_size, args.image_size))
@@ -185,13 +189,13 @@ while not converged:
         cost1.backward()
 
         # normalize the gradient
-        new_g = image.grad / torch.sum(torch.abs(image.grad))
+        new_g = image.grad / torch.sqrt(torch.sum(image.grad ** 2))
 
         # update the gradient
         bce_grads[i] = mu * bce_grads[i] + new_g
 
         # perform the step, and detach because otherwise gradients get messed up.
-        image = (image - alpha * bce_grads[i].sign()).detach()
+        image = (image - alpha * bce_grads[i]).detach()
 
         bce_samples[i] = image
 
@@ -206,13 +210,13 @@ while not converged:
         cost2.backward()
 
         # normalize the gradient
-        new_g = image.grad / torch.sum(torch.abs(image.grad))
+        new_g = image.grad / torch.sqrt(torch.sum(image.grad ** 2))
 
         # update the gradient
         linear_grads[i] = mu * linear_grads[i] + new_g
 
         # perform the step, and detach because otherwise gradients get messed up.
-        image = (image - alpha * linear_grads[i].sign()).detach()
+        image = (image - alpha * linear_grads[i]).detach()
 
         linear_samples[i] = image
 
@@ -244,9 +248,11 @@ while not converged:
             converged = True
 
 
-EPSILON_VALUES = [i * interval * ((1/256)/10) for i in range(len(flipped_labels_patient))]
+EPSILON_VALUES = [i * interval * alpha for i in range(len(flipped_labels_patient))]
+
 coefs = poly.polyfit(EPSILON_VALUES, np.maximum(np.array(flipped_labels_patient),np.array(flipped_labels_patient)), 4)
 print(EPSILON_VALUES)
-np.save('experiment_results/{0}-{1}-profile-flips'.format(args.model_type, args.dataset_type), np.maximum(np.array(flipped_labels_patient),np.array(flipped_labels_patient)))
-np.save('experiment_results/{0}-{1}-profile'.format(args.model_type, args.dataset_type), coefs)
-np.save('experiment_results/{0}-{1}-profile-epsilons'.format(args.model_type, args.dataset_type), EPSILON_VALUES)
+
+np.save('experiment_results/{0}-{1}-l2-profile-flips'.format(args.model_type, args.dataset_type), np.maximum(np.array(flipped_labels_patient),np.array(flipped_labels_patient)))
+np.save('experiment_results/{0}-{1}-l2-profile'.format(args.model_type, args.dataset_type), coefs)
+np.save('experiment_results/{0}-{1}-l2-profile-epsilons'.format(args.model_type, args.dataset_type), EPSILON_VALUES)

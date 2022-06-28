@@ -4,19 +4,23 @@ import matplotlib.style
 import matplotlib as mpl
 import numpy.ma as ma
 from scipy.stats import spearmanr
+from scipy.stats import kendalltau
 mpl.style.use('classic')
 
-model_type = 'asl'
+model_type = 'q2l'
 dataset_type = 'NUS_WIDE'
 num_classes = 81
 
-flipped_labels = np.load('experiment_results/per-label-flips-{0}-{1}.npy'.format(model_type, dataset_type))
-confidences = np.load('experiment_results/per-label-confidences-{0}-{1}.npy'.format(model_type, dataset_type))
+actual_samples = np.load('experiment_results/positive-label-flips-actual-samples-{0}-{1}.npy'.format(model_type, dataset_type))
+flipped_labels = np.load('experiment_results/positive-label-flips-{0}-{1}.npy'.format(model_type, dataset_type))
+confidences = np.load('experiment_results/positive-label-confidences-{0}-{1}.npy'.format(model_type, dataset_type))
 frequencies = np.load('experiment_results/dataset-distribution-{0}.npy'.format(dataset_type))
+
+print(actual_samples)
 
 ids = np.array([x for x in range(num_classes)])
 
-flips = np.sum(flipped_labels, axis=1)
+flips = np.sum(flipped_labels, axis=1) / actual_samples
 flip_stds = np.std(flipped_labels, axis=1)
 
 confidence_means = np.mean(confidences, axis=1)
@@ -31,17 +35,19 @@ normalised_flips = normalised_flips / np.max(normalised_flips)
 normalised_frequencies = frequencies - np.min(frequencies)
 normalised_frequencies = normalised_frequencies / np.max(normalised_frequencies)
 
-# plt.bar(ids, normalised_frequencies)
-# plt.show()
-plt.plot(ids, normalised_flips, color='red')
+plt.bar(ids, normalised_flips)
 plt.show()
-plt.plot(ids, confidence_means, color='green')
+plt.bar(ids, normalised_frequencies, color='red')
+plt.show()
+plt.bar(ids, confidence_means, color='green')
 plt.show()
 
 
 flip_ranking = np.argsort(-1*normalised_flips)
 confidence_ranking = np.argsort(-1*normalised_confidences)
 frequency_ranking = np.argsort(-1*normalised_frequencies)
+
+# print(normalised_confidences)
 
 def calculate_correlation(sorted1, sorted2, num_classes):
 
