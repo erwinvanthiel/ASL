@@ -1,4 +1,4 @@
-name: conda-ml
+name: related_work
 channels:
   - pytorch
   - conda-forge
@@ -84,6 +84,6 @@ dependencies:
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.4.9=ha95c52a_0
   - pip:
-     - "git+https://github.com/mapillary/inplace_abn.git@v1.1.0"
+     - "git+https://github.com/mapillary/inplace_abn.git"
      - "randaugument"
-prefix: /home/erwin/anaconda3/envs/conda-ml
+prefix: /home/erwin/anaconda3/envs/related_work
