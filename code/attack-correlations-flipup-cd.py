@@ -33,60 +33,9 @@ torch.manual_seed(11)
 torch.cuda.manual_seed_all(11)
 np.random.seed(11)
 
-########################## ARGUMENTS #############################################
+########################## LOAD MODEL #############################################
 
-parser = argparse.ArgumentParser()
-
-parser.add_argument('classifier', type=str, default='asl_coco')
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-
-
-
-# IMPORTANT PARAMETERS!
-parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=1, type=int,
-                    metavar='N', help='mini-batch size (default: 16)')
-parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
-                    help='number of data loading workers (default: 16)')
-args = parse_args(parser)
-
-
-########################## SETUP THE MODELS  #####################
-
-
-if args.classifier == 'asl_coco'
-
-    asl, config = create_asl_model('asl_coco.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'asl_nuswide':
-    asl, config = create_asl_model('asl_nuswide.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'asl_voc':
-    asl, config = create_asl_model('asl_voc.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'q2l_coco':
-    q2l = create_q2l_model('q2l_coco.json')
-    args.model_type = 'q2l'
-    model = q2l
-
-elif args.classifier == 'q2l_nuswide':
-    q2l = create_q2l_model('q2l_nuswide.json')
-    args.model_type = 'q2l'
-    model = q2l
-
-args_dict = {**vars(args), **vars(config)}
-args = types.SimpleNamespace(**args_dict)
-
+args, model = parse_model_and_args()
 
 ########################## LOAD THE DATASET  #####################
 
@@ -168,6 +117,6 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
 
 # save the results
-np.save('experiment_results/flipup-correlations-{0}-{1}.npy'.format('VOC2007', args.model_type), correlations[0])
+np.save('experiment_results/flipup-correlations-{0}-{1}.npy'.format(args.dataset_type, args.model_type), correlations[0])
 sns.heatmap(correlations[0])
 plt.show()

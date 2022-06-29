@@ -33,100 +33,55 @@ torch.manual_seed(11)
 torch.cuda.manual_seed_all(11)
 np.random.seed(11)
 
-########################## ARGUMENTS #############################################
+########################## LOAD MODEL #############################################
 
-parser = argparse.ArgumentParser()
-
-parser.add_argument('classifier', type=str, default='asl_coco')
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
+args, model = parse_model_and_args()
+correlations = torch.zeros((len(EPSILON_VALUES),args.num_classes,args.num_classes))
 
 
+for target_label in range(args.num_classes):
 
-# IMPORTANT PARAMETERS!
-parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=1, type=int,
-                    metavar='N', help='mini-batch size (default: 16)')
-parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
-                    help='number of data loading workers (default: 16)')
-args = parse_args(parser)
+    ########################## LOAD THE DATASET  #####################
 
 
-########################## SETUP THE MODELS  #####################
 
+    if args.dataset_type == 'MSCOCO_2014':
 
-if args.classifier == 'asl_coco'
+        instances_path = os.path.join(args.data, 'annotations/instances_val2014.json')
+        data_path = '{0}/val2014'.format(args.data)
 
-    asl, config = create_asl_model('asl_coco.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
+        dataset = CocoDetectionFiltered(data_path,
+                                    instances_path,
+                                    transforms.Compose([
+                                        transforms.Resize((args.image_size, args.image_size)),
+                                        transforms.ToTensor(),
+                                        # normalize, # no need, toTensor does normalization
+                                    ]), label_indices_positive=[target_label])
 
-elif args.classifier == 'asl_nuswide':
-    asl, config = create_asl_model('asl_nuswide.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
+    elif args.dataset_type == 'VOC2007':
 
-elif args.classifier == 'asl_voc':
-    asl, config = create_asl_model('asl_voc.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
+        dataset = Voc2007Classification('trainval',
+                                        transform=transforms.Compose([
+                        transforms.Resize((args.image_size, args.image_size)),
+                        transforms.ToTensor(),
+                    ]), train=True, label_indices_positive=[target_label])
 
-elif args.classifier == 'q2l_coco':
-    q2l = create_q2l_model('q2l_coco.json')
-    args.model_type = 'q2l'
-    model = q2l
+    elif args.dataset_type == 'NUS_WIDE':
+        
+        dataset = NusWideFiltered('val', path=args.data, transform=transforms.Compose([
+                        transforms.Resize((args.image_size, args.image_size)),
+                        transforms.ToTensor()], label_indices_positive=[target_label])
+        )
 
-elif args.classifier == 'q2l_nuswide':
-    q2l = create_q2l_model('q2l_nuswide.json')
-    args.model_type = 'q2l'
-    model = q2l
-
-args_dict = {**vars(args), **vars(config)}
-args = types.SimpleNamespace(**args_dict)
-
-
-########################## LOAD THE DATASET  #####################
-
-if args.dataset_type == 'MSCOCO_2014':
-
-    instances_path = os.path.join(args.data, 'annotations/instances_val2014.json')
-    data_path = '{0}/val2014'.format(args.data)
-
-    dataset = CocoDetectionFiltered(data_path,
-                                instances_path,
-                                transforms.Compose([
-                                    transforms.Resize((args.image_size, args.image_size)),
-                                    transforms.ToTensor(),
-                                    # normalize, # no need, toTensor does normalization
-                                ]))
-
-elif args.dataset_type == 'VOC2007':
-
-    dataset = Voc2007Classification('trainval',
-                                    transform=transforms.Compose([
-                    transforms.Resize((args.image_size, args.image_size)),
-                    transforms.ToTensor(),
-                ]), train=True)
-
-elif args.dataset_type == 'NUS_WIDE':
-    
-    dataset = NusWideFiltered('val', path=args.data, transform=transforms.Compose([
-                    transforms.Resize((args.image_size, args.image_size)),
-                    transforms.ToTensor()])
-    )
-
-# Pytorch Data loader
-data_loader = torch.utils.data.DataLoader(
+    # Pytorch Data loader
+    data_loader = torch.utils.data.DataLoader(
     dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True)
 
     target = torch.zeros(args.batch_size, args.num_classes).to(device).float()
     target[:, target_label] = 0
     loss_weights = torch.zeros(target.shape).to(device)
-    loss_weights[: target_label] = 1
+    loss_weights[:, target_label] = 1
 
     sample_count = 0
 
@@ -138,23 +93,16 @@ data_loader = torch.utils.data.DataLoader(
 
         for epsilon_index, epsilon in enumerate(EPSILON_VALUES):
 
-            # perform the attack
-            if args.attack_type == 'PGD':
-                adversarials = pgd(model, tensor_batch, target, eps=epsilon, device='cuda')
-            elif args.attack_type == 'FGSM':
-                adversarials = fgsm(model, tensor_batch, target, eps=epsilon, device='cuda')
-            elif args.attack_type == 'MI-FGSM':
-                adversarials = mi_fgsm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=loss_weights), eps=epsilon, device='cuda')
-            else:
-                print("Unknown attack")
+            
+            adversarials = mi_fgsm(model, tensor_batch, target, loss_function=torch.nn.BCELoss(weight=loss_weights), eps=epsilon, device='cuda')
 
             with torch.no_grad():
-                correlations[epsilon_index, target_label] += (1 / NUMBER_OF_SAMPLES) *(torch.sigmoid(model(adversarials)) - torch.sigmoid(model(tensor_batch))).sum(dim=0).cpu()
+                correlations[epsilon_index, target_label] += (1 / NUMBER_OF_SAMPLES) * (torch.sigmoid(model(adversarials)) - torch.sigmoid(model(tensor_batch))).sum(dim=0).cpu()
         
         sample_count += args.batch_size
 
 
 # PLOT
-np.save('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, args.attack_type, args.model_type), correlations)
+np.save('experiment_results/flipdown-correlations-{0}-{1}-{2}.npy'.format(args.dataset_type, args.model_type), correlations)
 sns.heatmap(correlations[0])
 plt.show()

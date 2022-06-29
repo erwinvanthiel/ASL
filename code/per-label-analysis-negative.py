@@ -25,6 +25,7 @@ import numpy.ma as ma
 import matplotlib as mpl
 import numpy.polynomial.polynomial as poly
 import types
+from model_and_dataset_loader import parse_model_and_args, load_dataset
 mpl.style.use('classic')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # USE GPU
@@ -33,95 +34,11 @@ torch.manual_seed(11)
 torch.cuda.manual_seed_all(11)
 np.random.seed(11)
 
-########################## ARGUMENTS #############################################
+########################## LOAD DATASET AND MODEL #############################################
 
-parser = argparse.ArgumentParser()
+args, model = parse_model_and_args()
+data_loader = load_dataset(args)
 
-parser.add_argument('classifier', type=str, default='asl_coco')
-parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
-
-
-
-# IMPORTANT PARAMETERS!
-parser.add_argument('--th', type=float, default=0.5)
-parser.add_argument('-b', '--batch-size', default=1, type=int,
-                    metavar='N', help='mini-batch size (default: 16)')
-parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
-                    help='number of data loading workers (default: 16)')
-args = parse_args(parser)
-
-
-########################## SETUP THE MODELS  #####################
-
-
-if args.classifier == 'asl_coco'
-
-    asl, config = create_asl_model('asl_coco.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'asl_nuswide':
-    asl, config = create_asl_model('asl_nuswide.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'asl_voc':
-    asl, config = create_asl_model('asl_voc.json')
-    asl.eval()
-    args.model_type = 'asl'
-    model = asl
-
-elif args.classifier == 'q2l_coco':
-    q2l = create_q2l_model('q2l_coco.json')
-    args.model_type = 'q2l'
-    model = q2l
-
-elif args.classifier == 'q2l_nuswide':
-    q2l = create_q2l_model('q2l_nuswide.json')
-    args.model_type = 'q2l'
-    model = q2l
-
-args_dict = {**vars(args), **vars(config)}
-args = types.SimpleNamespace(**args_dict)
-
-
-########################## LOAD THE DATASET  #####################
-
-if args.dataset_type == 'MSCOCO_2014':
-
-    instances_path = os.path.join(args.data, 'annotations/instances_val2014.json')
-    data_path = '{0}/val2014'.format(args.data)
-
-    dataset = CocoDetectionFiltered(data_path,
-                                instances_path,
-                                transforms.Compose([
-                                    transforms.Resize((args.image_size, args.image_size)),
-                                    transforms.ToTensor(),
-                                    # normalize, # no need, toTensor does normalization
-                                ]))
-
-elif args.dataset_type == 'VOC2007':
-
-    dataset = Voc2007Classification('trainval',
-                                    transform=transforms.Compose([
-                    transforms.Resize((args.image_size, args.image_size)),
-                    transforms.ToTensor(),
-                ]), train=True)
-
-elif args.dataset_type == 'NUS_WIDE':
-    
-    dataset = NusWideFiltered('val', path=args.data, transform=transforms.Compose([
-                    transforms.Resize((args.image_size, args.image_size)),
-                    transforms.ToTensor()])
-    )
-
-# Pytorch Data loader
-data_loader = torch.utils.data.DataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True,
-    num_workers=args.workers, pin_memory=True)
 ################ EXPERIMENT VARIABLES ########################
 
 NUMBER_OF_SAMPLES = 100
