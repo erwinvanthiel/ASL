@@ -6,4 +6,5 @@
 * Make sure there is a folder called experiment_results in the repo root directory
 * Then enter the following command: python script_name.py classifier dataset path_to_dataset
 	* example: python attack.py asl_nuswide ../../NUS_WIDE NUS_WIDE
-	* For other options such as batch_size, threshold, etc, run without arguemnt 
+	* For other options such as batch_size, threshold, etc, run without arguements for help
+	* Results are stored as Numpy files and can be printed with scripts in plots folder
