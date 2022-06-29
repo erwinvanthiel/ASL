@@ -1,6 +1,8 @@
 {
   "backbone": "resnet101",
-  "img_size": 448,
+  "image_size": 448,
+  "img_size":448,
+  "num_classes": 81,
   "num_class": 81,
   "gamma_pos": 0.0,
   "gamma_neg": 2.0,

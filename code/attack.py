@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
 from attacks import pgd, fgsm, mi_fgsm, get_top_n_weights, get_weights_from_correlations, l2_mi_fgm
-from mlc_attack_losses import SigmoidLoss, HybridLoss, HingeLoss, LinearLoss, MSELoss, SLAM
+from mlc_attack_losses import SLAM
 from sklearn.metrics import auc
 from asl.src.helper_functions.helper_functions import mAP, CocoDetection, CocoDetectionFiltered, CutoutPIL, ModelEma, add_weight_decay
 from asl.src.helper_functions.voc import Voc2007Classification
@@ -39,7 +39,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('classifier', type=str, default='asl_coco')
 parser.add_argument('data', metavar='DIR', help='path to dataset', default='coco')
-parser.add_argument('--dataset_type', type=str, default='MSCOCO_2014')
+parser.add_argument('dataset_type', type=str, default='MSCOCO_2014')
 
 
 
@@ -55,7 +55,7 @@ args = parse_args(parser)
 ########################## SETUP THE MODELS  #####################
 
 
-if args.classifier == 'asl_coco'
+if args.classifier == 'asl_coco':
 
     asl, config = create_asl_model('asl_coco.json')
     asl.eval()
@@ -75,12 +75,12 @@ elif args.classifier == 'asl_voc':
     model = asl
 
 elif args.classifier == 'q2l_coco':
-    q2l = create_q2l_model('q2l_coco.json')
+    q2l, config = create_q2l_model('q2l_coco.json')
     args.model_type = 'q2l'
     model = q2l
 
 elif args.classifier == 'q2l_nuswide':
-    q2l = create_q2l_model('q2l_nuswide.json')
+    q2l, config = create_q2l_model('q2l_nuswide.json')
     args.model_type = 'q2l'
     model = q2l
 
@@ -197,19 +197,19 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
 
         print('setlength =', subset_length)
 
-        weights0 = get_top_n_weights(output, subset_length, random=True)
-        weights1 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 0, 4, 4)
-        weights2 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 0.5, 4, 4)
-        weights3 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 1, 4, 4)
+        # weights0 = get_top_n_weights(output, subset_length, random=True)
+        # weights1 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 0, 4, 4)
+        # weights2 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 0.5, 4, 4)
+        # weights3 = get_weights_from_correlations(instance_correlation_matrix, target, output, subset_length, 1, 4, 4)
 
         # PERFORM THE ATTACKS
-        adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(), eps=epsilon, device="cuda").detach()
-        adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=LinearLoss(), eps=epsilon, device="cuda").detach()
-        adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
-        adversarials3 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights0.to(device)), eps=epsilon, device="cuda").detach()
-        adversarials4 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights1.to(device)), eps=epsilon, device="cuda").detach()
-        adversarials5 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights2.to(device)), eps=epsilon, device="cuda").detach()
-        adversarials6 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights3.to(device)), eps=epsilon, device="cuda").detach()
+        adversarials0 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes, q=0.25), eps=epsilon, device="cuda").detach()
+        adversarials1 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes, q=0.75), eps=epsilon, device="cuda").detach()
+        # adversarials2 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=SLAM(coefs, epsilon, max_eps, args.num_classes), eps=epsilon, device="cuda").detach()
+        # adversarials3 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights0.to(device)), eps=epsilon, device="cuda").detach()
+        # adversarials4 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights1.to(device)), eps=epsilon, device="cuda").detach()
+        # adversarials5 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights2.to(device)), eps=epsilon, device="cuda").detach()
+        # adversarials6 = mi_fgsm(model, tensor_batch.detach(), target, loss_function=torch.nn.BCELoss(weight=weights3.to(device)), eps=epsilon, device="cuda").detach()
         
         
         with torch.no_grad():
@@ -221,36 +221,36 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
             adv_output1 = torch.sigmoid(model(adversarials1))
             pred_after_attack1 = (adv_output1 > args.th).int()
 
-            adv_output2 = torch.sigmoid(model(adversarials2))
-            pred_after_attack2 = (adv_output2 > args.th).int()
+            # adv_output2 = torch.sigmoid(model(adversarials2))
+            # pred_after_attack2 = (adv_output2 > args.th).int()
 
-            adv_output3 = torch.sigmoid(model(adversarials3))
-            pred_after_attack3 = (adv_output3 > args.th).int()
+            # adv_output3 = torch.sigmoid(model(adversarials3))
+            # pred_after_attack3 = (adv_output3 > args.th).int()
 
-            adv_output4 = torch.sigmoid(model(adversarials4))
-            pred_after_attack4 = (adv_output4 > args.th).int()
+            # adv_output4 = torch.sigmoid(model(adversarials4))
+            # pred_after_attack4 = (adv_output4 > args.th).int()
 
-            adv_output5 = torch.sigmoid(model(adversarials5))
-            pred_after_attack5 = (adv_output5 > args.th).int()
+            # adv_output5 = torch.sigmoid(model(adversarials5))
+            # pred_after_attack5 = (adv_output5 > args.th).int()
 
-            adv_output6 = torch.sigmoid(model(adversarials6))
-            pred_after_attack6 = (adv_output6 > args.th).int()
+            # adv_output6 = torch.sigmoid(model(adversarials6))
+            # pred_after_attack6 = (adv_output6 > args.th).int()
 
             # store the outputs
-            outputs[0, epsilon_index, i, :, :] = output.cpu()
-            outputs[1, epsilon_index, i, :, :] = adv_output0.cpu()
-            outputs[2, epsilon_index, i, :, :] = adv_output1.cpu()
-            outputs[3, epsilon_index, i, :, :] = adv_output2.cpu()
-            outputs[4, epsilon_index, i, :, :] = adv_output3.cpu()
+            # outputs[0, epsilon_index, i, :, :] = output.cpu()
+            # outputs[1, epsilon_index, i, :, :] = adv_output0.cpu()
+            # outputs[2, epsilon_index, i, :, :] = adv_output1.cpu()
+            # outputs[3, epsilon_index, i, :, :] = adv_output2.cpu()
+            # outputs[4, epsilon_index, i, :, :] = adv_output3.cpu()
 
             # store the flips        
             flipped_labels[0, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack0), dim=1).cpu().numpy()
             flipped_labels[1, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack1), dim=1).cpu().numpy()
-            flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2), dim=1).cpu().numpy()
-            flipped_labels[3, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack3), dim=1).cpu().numpy()
-            flipped_labels[4, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack4), dim=1).cpu().numpy()
-            flipped_labels[5, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack5), dim=1).cpu().numpy()
-            flipped_labels[6, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack6), dim=1).cpu().numpy()
+            # flipped_labels[2, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack2), dim=1).cpu().numpy()
+            # flipped_labels[3, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack3), dim=1).cpu().numpy()
+            # flipped_labels[4, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack4), dim=1).cpu().numpy()
+            # flipped_labels[5, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack5), dim=1).cpu().numpy()
+            # flipped_labels[6, epsilon_index, i*args.batch_size:(i+1)*args.batch_size] = torch.sum(torch.logical_xor(pred, pred_after_attack6), dim=1).cpu().numpy()
             
             # Confidence analysis plot
             # plot_confidences(output, adv_output0)
@@ -259,7 +259,7 @@ for i, (tensor_batch, labels) in enumerate(data_loader):
     print('batch number:',i)
 
 # SAVE THE RESULTS
-np.save('../experiment_results/flips-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
-np.save('../experiment_results/maxdist-outputs-{0}-{1}'.format(args.model_type, args.dataset_type), outputs)
-np.save('../experiment_results/maxdist-targets-{0}-{1}'.format(args.model_type, args.dataset_type), targets)
+np.save('../experiment_results/ablation-q-flips-{0}-{1}'.format(args.model_type, args.dataset_type), flipped_labels)
+# np.save('../experiment_results/maxdist-outputs-{0}-{1}'.format(args.model_type, args.dataset_type), outputs)
+# np.save('../experiment_results/maxdist-targets-{0}-{1}'.format(args.model_type, args.dataset_type), targets)
 

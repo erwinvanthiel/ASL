@@ -60,7 +60,7 @@ class MSELoss(nn.Module):
 
 class SLAM(nn.Module):
     
-    def __init__(self, coefficients, epsilon, max_eps, num_classes, weight=None, size_average=True):
+    def __init__(self, coefficients, epsilon, max_eps, num_classes, q=0.5, weight=None, size_average=True):
         super(SLAM, self).__init__()
         
         if epsilon >= max_eps:
@@ -69,6 +69,7 @@ class SLAM(nn.Module):
             estimate = np.maximum(0, poly.polyval(epsilon, coefficients))
             self.p = np.minimum(1,(estimate / num_classes))
 
+        self.q = q
         self.weight = weight
 
     def forward(self, x, y):
@@ -78,5 +79,5 @@ class SLAM(nn.Module):
 
         if self.weight is not None:
             loss = loss * self.weight
-        loss_total = (1 - self.p) * torch.mean(linear_loss) + self.p * log_loss
+        loss_total = (1 - self.q*self.p) * torch.mean(linear_loss) + self.q*self.p * log_loss
         return loss_total
